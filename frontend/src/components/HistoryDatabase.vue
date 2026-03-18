@@ -405,7 +405,7 @@ const closeModal = () => {
 const goToProject = () => {
   if (selectedProject.value?.project_id) {
     router.push({
-      name: 'Process',
+      name: selectedProject.value.workflow_mode === 'strategy_lab' ? 'StrategyLab' : 'Process',
       params: { projectId: selectedProject.value.project_id }
     })
     closeModal()

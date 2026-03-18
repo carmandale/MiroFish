@@ -314,7 +314,7 @@ const startSimulation = () => {
     
     // 立即跳转到Process页面（使用特殊标识表示新建项目）
     router.push({
-      name: 'Process',
+      name: formData.value.workflowMode === 'strategy_lab' ? 'StrategyLab' : 'Process',
       params: { projectId: 'new' }
     })
   })

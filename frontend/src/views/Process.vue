@@ -597,6 +597,15 @@ const handleNewProject = async () => {
       // 更新项目ID和数据
       currentProjectId.value = response.data.project_id
       projectData.value = response.data
+
+      if (response.data.workflow_mode === 'strategy_lab') {
+        router.replace({
+          name: 'StrategyLab',
+          params: { projectId: response.data.project_id }
+        })
+        ontologyProgress.value = null
+        return
+      }
       
       // 更新URL（不刷新页面）
       router.replace({
@@ -626,6 +635,10 @@ const loadProject = async () => {
     const response = await getProject(currentProjectId.value)
     
     if (response.success) {
+      if (response.data.workflow_mode === 'strategy_lab') {
+        router.replace({ name: 'StrategyLab', params: { projectId: currentProjectId.value } })
+        return
+      }
       projectData.value = response.data
       updatePhaseByStatus(response.data.status)
       

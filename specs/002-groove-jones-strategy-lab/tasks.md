@@ -38,7 +38,7 @@ bead: bd-1cv
   - **Verify:** a cited chunk can be traced to `filename + locator + chunk_id + episode_uuid`.
   - **Depends on:** T1
 
-- [ ] **T3: Add the strategy-lab API scaffold**
+- [x] **T3: Add the strategy-lab API scaffold**
   - Register a new strategy-lab blueprint and create project-scoped endpoints for lane template save/load, lane run status, private-analysis launch/status, comparative-report fetch, and source inspection.
   - Keep existing `/api/report/*` endpoints simulation-centric.
   - **Verify:** missing project/lane artifacts return correct 4xx errors.
@@ -46,14 +46,14 @@ bead: bd-1cv
 
 ## Private Analysis and Comparative Core
 
-- [ ] **T4: Implement `PrivateAnalysisAgent` with manifest-backed citations**
+- [x] **T4: Implement `PrivateAnalysisAgent` with manifest-backed citations**
   - Build a new service that runs on `project_id + graph_id + lane template + provenance-resolved excerpts + stored narrative artifacts`.
   - Emit markdown/json scorecards with required dimensions, per-metric `CitationRecord[]`, and explicit assumptions/caveats.
   - Do not require `simulation_id`.
   - **Verify:** one defense-lane scorecard generates with structured citations and no simulation-scoped report state.
   - **Depends on:** T2, T3
 
-- [ ] **T5: Expand private analysis and comparative composition to all five lanes**
+- [x] **T5: Expand private analysis and comparative composition to all five lanes**
   - Generalize `PrivateAnalysisAgent` across all five required lane IDs.
   - Build `comparative_report.json` and `comparative_report.md` so one project-scoped output includes every lane and every required dimension.
   - Reject unlabeled metrics and unverifiable citations.
@@ -78,14 +78,14 @@ bead: bd-1cv
 
 ## Delivery Surface
 
-- [ ] **T8: Build the minimal `StrategyLabView` and source inspector**
+- [x] **T8: Build the minimal `StrategyLabView` and source inspector**
   - Route `strategy_lab` projects away from the existing 5-step shell.
   - Add a project-scoped `StrategyLabView` with lane template review, per-lane run status, comparative report display, transcript viewer, and source inspection.
   - Keep the default social flow unchanged.
   - **Verify:** default flow still routes as before, and strategy-lab projects land in the new surface.
   - **Depends on:** T3, T5, T7
 
-- [ ] **T9: Replace raw strategy-lab rendering with sanitized markdown**
+- [x] **T9: Replace raw strategy-lab rendering with sanitized markdown**
   - Add a shared safe markdown utility for the new strategy-lab surface.
   - Do not reuse the current raw `v-html` helpers from `Step4Report.vue` / `Step5Interaction.vue` unchanged.
   - **Verify:** strategy-lab report/transcript content is sanitized before render.

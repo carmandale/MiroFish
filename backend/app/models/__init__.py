@@ -8,6 +8,7 @@ from .strategy_lab import (
     WorkflowMode,
     LocatorType,
     SourceLabel,
+    AnalysisSourceLabel,
     DocumentSegment,
     ExtractedDocument,
     DocumentManifestEntry,
@@ -15,8 +16,11 @@ from .strategy_lab import (
     CitationRecord,
     LaneTemplate,
     LaneRunContext,
+    LaneMetricResult,
     LaneScorecard,
+    LaneRunStatus,
     InterviewArtifact,
+    ComparativeReport,
 )
 
 __all__ = [
@@ -28,6 +32,7 @@ __all__ = [
     'WorkflowMode',
     'LocatorType',
     'SourceLabel',
+    'AnalysisSourceLabel',
     'DocumentSegment',
     'ExtractedDocument',
     'DocumentManifestEntry',
@@ -35,6 +40,9 @@ __all__ = [
     'CitationRecord',
     'LaneTemplate',
     'LaneRunContext',
+    'LaneMetricResult',
     'LaneScorecard',
+    'LaneRunStatus',
     'InterviewArtifact',
+    'ComparativeReport',
 ]

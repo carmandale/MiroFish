@@ -210,6 +210,13 @@ const handleNewProject = async () => {
       clearPendingUpload()
       currentProjectId.value = res.data.project_id
       projectData.value = res.data
+
+      if (res.data.workflow_mode === 'strategy_lab') {
+        router.replace({ name: 'StrategyLab', params: { projectId: res.data.project_id } })
+        ontologyProgress.value = null
+        addLog(`Redirecting strategy_lab project ${res.data.project_id} to StrategyLabView`)
+        return
+      }
       
       router.replace({ name: 'Process', params: { projectId: res.data.project_id } })
       ontologyProgress.value = null
@@ -233,6 +240,10 @@ const loadProject = async () => {
     addLog(`Loading project ${currentProjectId.value}...`)
     const res = await getProject(currentProjectId.value)
     if (res.success) {
+      if (res.data.workflow_mode === 'strategy_lab') {
+        router.replace({ name: 'StrategyLab', params: { projectId: currentProjectId.value } })
+        return
+      }
       projectData.value = res.data
       updatePhaseByStatus(res.data.status)
       addLog(`Project loaded. Status: ${res.data.status}`)

@@ -37,6 +37,8 @@ from .simulation_ipc import (
     CommandStatus
 )
 from .strategy_lab_provenance import StrategyLabProvenanceService
+from .private_analysis_agent import PrivateAnalysisAgent
+from .strategy_lab import StrategyLabService
 
 __all__ = [
     'OntologyGenerator', 
@@ -71,4 +73,6 @@ __all__ = [
     'CommandType',
     'CommandStatus',
     'StrategyLabProvenanceService',
+    'PrivateAnalysisAgent',
+    'StrategyLabService',
 ]
