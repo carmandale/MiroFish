@@ -36,6 +36,7 @@ from .simulation_ipc import (
     CommandType,
     CommandStatus
 )
+from .strategy_lab_provenance import StrategyLabProvenanceService
 
 __all__ = [
     'OntologyGenerator', 
@@ -69,5 +70,5 @@ __all__ = [
     'IPCResponse',
     'CommandType',
     'CommandStatus',
+    'StrategyLabProvenanceService',
 ]
-

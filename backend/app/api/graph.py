@@ -12,11 +12,13 @@ from . import graph_bp
 from ..config import Config
 from ..services.ontology_generator import OntologyGenerator
 from ..services.graph_builder import GraphBuilderService
+from ..services.strategy_lab_provenance import StrategyLabProvenanceService
 from ..services.text_processor import TextProcessor
 from ..utils.file_parser import FileParser
 from ..utils.logger import get_logger
 from ..models.task import TaskManager, TaskStatus
 from ..models.project import ProjectManager, ProjectStatus
+from ..models.strategy_lab import WorkflowMode
 
 # 获取日志器
 logger = get_logger('mirofish.api')
@@ -28,6 +30,16 @@ def allowed_file(filename: str) -> bool:
         return False
     ext = os.path.splitext(filename)[1].lower().lstrip('.')
     return ext in Config.ALLOWED_EXTENSIONS
+
+
+def _parse_workflow_mode(raw_value: str | None) -> WorkflowMode:
+    """解析工作流模式"""
+    if not raw_value:
+        return WorkflowMode.DEFAULT
+    try:
+        return WorkflowMode(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"不支持的 workflow_mode: {raw_value}") from exc
 
 
 # ============== 项目管理接口 ==============
@@ -153,6 +165,13 @@ def generate_ontology():
         simulation_requirement = request.form.get('simulation_requirement', '')
         project_name = request.form.get('project_name', 'Unnamed Project')
         additional_context = request.form.get('additional_context', '')
+        try:
+            workflow_mode = _parse_workflow_mode(request.form.get('workflow_mode'))
+        except ValueError as exc:
+            return jsonify({
+                "success": False,
+                "error": str(exc)
+            }), 400
         
         logger.debug(f"项目名称: {project_name}")
         logger.debug(f"模拟需求: {simulation_requirement[:100]}...")
@@ -172,12 +191,16 @@ def generate_ontology():
             }), 400
         
         # 创建项目
-        project = ProjectManager.create_project(name=project_name)
+        project = ProjectManager.create_project(
+            name=project_name,
+            workflow_mode=workflow_mode,
+        )
         project.simulation_requirement = simulation_requirement
         logger.info(f"创建项目: {project.project_id}")
         
         # 保存文件并提取文本
         document_texts = []
+        extracted_documents = []
         all_text = ""
         
         for file in uploaded_files:
@@ -190,14 +213,19 @@ def generate_ontology():
                 )
                 project.files.append({
                     "filename": file_info["original_filename"],
+                    "saved_filename": file_info["saved_filename"],
                     "size": file_info["size"]
                 })
                 
                 # 提取文本
-                text = FileParser.extract_text(file_info["path"])
-                text = TextProcessor.preprocess_text(text)
-                document_texts.append(text)
-                all_text += f"\n\n=== {file_info['original_filename']} ===\n{text}"
+                document = FileParser.extract_document(
+                    file_info["path"],
+                    original_filename=file_info["original_filename"],
+                    saved_filename=file_info["saved_filename"],
+                )
+                extracted_documents.append(document)
+                document_texts.append(document.text)
+                all_text += f"\n\n=== {file_info['original_filename']} ===\n{document.text}"
         
         if not document_texts:
             ProjectManager.delete_project(project.project_id)
@@ -209,6 +237,16 @@ def generate_ontology():
         # 保存提取的文本
         project.total_text_length = len(all_text)
         ProjectManager.save_extracted_text(project.project_id, all_text)
+        ProjectManager.save_extracted_documents(project.project_id, extracted_documents)
+        if workflow_mode == WorkflowMode.STRATEGY_LAB:
+            corpus_manifest = StrategyLabProvenanceService.build_corpus_manifest(
+                extracted_documents
+            )
+            ProjectManager.save_strategy_lab_artifact(
+                project.project_id,
+                'corpus_manifest.json',
+                [entry.to_dict() for entry in corpus_manifest],
+            )
         logger.info(f"文本提取完成，共 {len(all_text)} 字符")
         
         # 生成本体
@@ -390,12 +428,31 @@ def build_graph():
                     message="文本分块中...",
                     progress=5
                 )
-                chunks = TextProcessor.split_text(
-                    text, 
-                    chunk_size=chunk_size, 
-                    overlap=chunk_overlap
-                )
+                chunk_entries = None
+                manifest_path = None
+                if project.workflow_mode == WorkflowMode.STRATEGY_LAB:
+                    extracted_documents = ProjectManager.get_extracted_documents(project_id)
+                    if not extracted_documents:
+                        raise ValueError("未找到 strategy lab 提取文档，无法构建 provenance manifest")
+                    chunk_entries = StrategyLabProvenanceService.build_chunk_manifest(
+                        extracted_documents,
+                        chunk_size=chunk_size,
+                        overlap=chunk_overlap,
+                    )
+                    chunks = [entry.text for entry in chunk_entries]
+                    manifest_path = ProjectManager.get_strategy_lab_artifact_path(
+                        project_id,
+                        'chunk_manifest.json',
+                    )
+                else:
+                    chunks = TextProcessor.split_text(
+                        text,
+                        chunk_size=chunk_size,
+                        overlap=chunk_overlap,
+                    )
                 total_chunks = len(chunks)
+                if total_chunks == 0:
+                    raise ValueError("文本分块结果为空")
                 
                 # 创建图谱
                 task_manager.update_task(
@@ -436,7 +493,9 @@ def build_graph():
                     graph_id, 
                     chunks,
                     batch_size=3,
-                    progress_callback=add_progress_callback
+                    progress_callback=add_progress_callback,
+                    chunk_entries=chunk_entries,
+                    manifest_path=manifest_path,
                 )
                 
                 # 等待Zep处理完成（查询每个episode的processed状态）

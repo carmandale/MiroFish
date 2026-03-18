@@ -4,6 +4,7 @@
 """
 
 import os
+import json
 import uuid
 import time
 import threading
@@ -14,6 +15,7 @@ from zep_cloud.client import Zep
 from zep_cloud import EpisodeData, EntityEdgeSourceTarget
 
 from ..config import Config
+from ..models.strategy_lab import ChunkManifestEntry
 from ..models.task import TaskManager, TaskStatus
 from ..utils.zep_paging import fetch_all_nodes, fetch_all_edges
 from .text_processor import TextProcessor
@@ -290,14 +292,27 @@ class GraphBuilderService:
         graph_id: str,
         chunks: List[str],
         batch_size: int = 3,
-        progress_callback: Optional[Callable] = None
+        progress_callback: Optional[Callable] = None,
+        chunk_entries: Optional[List[ChunkManifestEntry]] = None,
+        manifest_path: Optional[str] = None,
     ) -> List[str]:
         """分批添加文本到图谱，返回所有 episode 的 uuid 列表"""
         episode_uuids = []
         total_chunks = len(chunks)
+        if total_chunks == 0:
+            return []
+
+        if chunk_entries is not None:
+            if len(chunk_entries) != total_chunks:
+                raise ValueError(
+                    f"chunk manifest 数量与文本块数量不一致: {len(chunk_entries)} != {total_chunks}"
+                )
+            if manifest_path:
+                self._write_chunk_manifest(manifest_path, chunk_entries)
         
         for i in range(0, total_chunks, batch_size):
             batch_chunks = chunks[i:i + batch_size]
+            batch_entries = chunk_entries[i:i + batch_size] if chunk_entries else None
             batch_num = i // batch_size + 1
             total_batches = (total_chunks + batch_size - 1) // batch_size
             
@@ -320,13 +335,25 @@ class GraphBuilderService:
                     graph_id=graph_id,
                     episodes=episodes
                 )
-                
-                # 收集返回的 episode uuid
-                if batch_result and isinstance(batch_result, list):
-                    for ep in batch_result:
-                        ep_uuid = getattr(ep, 'uuid_', None) or getattr(ep, 'uuid', None)
-                        if ep_uuid:
-                            episode_uuids.append(ep_uuid)
+
+                if not batch_result or not isinstance(batch_result, list):
+                    raise ValueError(f"批次 {batch_num} 未返回有效的 episode 列表")
+
+                if len(batch_result) != len(batch_chunks):
+                    raise ValueError(
+                        f"批次 {batch_num} 返回数量异常: {len(batch_result)} != {len(batch_chunks)}"
+                    )
+
+                for offset, ep in enumerate(batch_result):
+                    ep_uuid = getattr(ep, 'uuid_', None) or getattr(ep, 'uuid', None)
+                    if not ep_uuid:
+                        raise ValueError(f"批次 {batch_num} 第 {offset + 1} 个 episode 缺少 uuid")
+                    episode_uuids.append(ep_uuid)
+                    if batch_entries is not None:
+                        batch_entries[offset].episode_uuid = ep_uuid
+
+                if batch_entries is not None and manifest_path:
+                    self._write_chunk_manifest(manifest_path, chunk_entries)
                 
                 # 避免请求过快
                 time.sleep(1)
@@ -337,6 +364,26 @@ class GraphBuilderService:
                 raise
         
         return episode_uuids
+
+    @staticmethod
+    def _write_chunk_manifest(
+        manifest_path: str,
+        chunk_entries: List[ChunkManifestEntry],
+    ) -> None:
+        parent_dir = os.path.dirname(manifest_path)
+        os.makedirs(parent_dir, exist_ok=True)
+        temp_path = os.path.join(
+            parent_dir,
+            f".{os.path.basename(manifest_path)}.{uuid.uuid4().hex}.tmp",
+        )
+        with open(temp_path, 'w', encoding='utf-8') as handle:
+            json.dump(
+                [entry.to_dict() for entry in chunk_entries],
+                handle,
+                ensure_ascii=False,
+                indent=2,
+            )
+        os.replace(temp_path, manifest_path)
     
     def _wait_for_episodes(
         self,
@@ -497,4 +544,3 @@ class GraphBuilderService:
     def delete_graph(self, graph_id: str):
         """删除图谱"""
         self.client.graph.delete(graph_id=graph_id)
-

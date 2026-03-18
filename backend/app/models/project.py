@@ -8,10 +8,12 @@ import json
 import uuid
 import shutil
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 from enum import Enum
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from ..config import Config
+from .strategy_lab import ExtractedDocument, WorkflowMode
 
 
 class ProjectStatus(str, Enum):
@@ -45,6 +47,7 @@ class Project:
     graph_build_task_id: Optional[str] = None
     
     # 配置
+    workflow_mode: WorkflowMode = WorkflowMode.DEFAULT
     simulation_requirement: Optional[str] = None
     chunk_size: int = 500
     chunk_overlap: int = 50
@@ -66,6 +69,11 @@ class Project:
             "analysis_summary": self.analysis_summary,
             "graph_id": self.graph_id,
             "graph_build_task_id": self.graph_build_task_id,
+            "workflow_mode": (
+                self.workflow_mode.value
+                if isinstance(self.workflow_mode, WorkflowMode)
+                else self.workflow_mode
+            ),
             "simulation_requirement": self.simulation_requirement,
             "chunk_size": self.chunk_size,
             "chunk_overlap": self.chunk_overlap,
@@ -78,6 +86,13 @@ class Project:
         status = data.get('status', 'created')
         if isinstance(status, str):
             status = ProjectStatus(status)
+
+        workflow_mode = data.get("workflow_mode", WorkflowMode.DEFAULT.value)
+        if isinstance(workflow_mode, str):
+            try:
+                workflow_mode = WorkflowMode(workflow_mode)
+            except ValueError:
+                workflow_mode = WorkflowMode.DEFAULT
         
         return cls(
             project_id=data['project_id'],
@@ -91,6 +106,7 @@ class Project:
             analysis_summary=data.get('analysis_summary'),
             graph_id=data.get('graph_id'),
             graph_build_task_id=data.get('graph_build_task_id'),
+            workflow_mode=workflow_mode,
             simulation_requirement=data.get('simulation_requirement'),
             chunk_size=data.get('chunk_size', 500),
             chunk_overlap=data.get('chunk_overlap', 50),
@@ -128,9 +144,64 @@ class ProjectManager:
     def _get_project_text_path(cls, project_id: str) -> str:
         """获取项目提取文本存储路径"""
         return os.path.join(cls._get_project_dir(project_id), 'extracted_text.txt')
+
+    @classmethod
+    def _get_extracted_documents_path(cls, project_id: str) -> str:
+        """获取提取文档元数据路径"""
+        return os.path.join(cls._get_project_dir(project_id), 'extracted_documents.json')
+
+    @classmethod
+    def _get_strategy_lab_dir(cls, project_id: str) -> str:
+        """获取 Strategy Lab 目录"""
+        return os.path.join(cls._get_project_dir(project_id), 'strategy_lab')
+
+    @classmethod
+    def _get_strategy_lab_current_dir(cls, project_id: str) -> str:
+        """获取 Strategy Lab current 目录"""
+        return os.path.join(cls._get_strategy_lab_dir(project_id), 'current')
+
+    @classmethod
+    def _get_strategy_lab_runs_dir(cls, project_id: str) -> str:
+        """获取 Strategy Lab runs 目录"""
+        return os.path.join(cls._get_strategy_lab_dir(project_id), 'runs')
+
+    @classmethod
+    def _atomic_write_text(cls, path: str, content: str) -> None:
+        """原子写入文本文件"""
+        parent = Path(path).parent
+        parent.mkdir(parents=True, exist_ok=True)
+        temp_path = parent / f".{Path(path).name}.{uuid.uuid4().hex}.tmp"
+        temp_path.write_text(content, encoding='utf-8')
+        os.replace(temp_path, path)
+
+    @classmethod
+    def _atomic_write_json(cls, path: str, data: Any) -> None:
+        """原子写入 JSON 文件"""
+        cls._atomic_write_text(
+            path,
+            json.dumps(data, ensure_ascii=False, indent=2),
+        )
+
+    @classmethod
+    def _load_json(cls, path: str) -> Any:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+
+    @classmethod
+    def ensure_strategy_lab_dirs(cls, project_id: str) -> str:
+        """确保 Strategy Lab 目录结构存在"""
+        strategy_lab_dir = cls._get_strategy_lab_dir(project_id)
+        os.makedirs(strategy_lab_dir, exist_ok=True)
+        os.makedirs(cls._get_strategy_lab_current_dir(project_id), exist_ok=True)
+        os.makedirs(cls._get_strategy_lab_runs_dir(project_id), exist_ok=True)
+        return strategy_lab_dir
     
     @classmethod
-    def create_project(cls, name: str = "Unnamed Project") -> Project:
+    def create_project(
+        cls,
+        name: str = "Unnamed Project",
+        workflow_mode: WorkflowMode | str = WorkflowMode.DEFAULT,
+    ) -> Project:
         """
         创建新项目
         
@@ -141,6 +212,9 @@ class ProjectManager:
             新创建的Project对象
         """
         cls._ensure_projects_dir()
+
+        if isinstance(workflow_mode, str):
+            workflow_mode = WorkflowMode(workflow_mode)
         
         project_id = f"proj_{uuid.uuid4().hex[:12]}"
         now = datetime.now().isoformat()
@@ -150,7 +224,8 @@ class ProjectManager:
             name=name,
             status=ProjectStatus.CREATED,
             created_at=now,
-            updated_at=now
+            updated_at=now,
+            workflow_mode=workflow_mode,
         )
         
         # 创建项目目录结构
@@ -158,6 +233,8 @@ class ProjectManager:
         files_dir = cls._get_project_files_dir(project_id)
         os.makedirs(project_dir, exist_ok=True)
         os.makedirs(files_dir, exist_ok=True)
+        if workflow_mode == WorkflowMode.STRATEGY_LAB:
+            cls.ensure_strategy_lab_dirs(project_id)
         
         # 保存项目元数据
         cls.save_project(project)
@@ -169,9 +246,7 @@ class ProjectManager:
         """保存项目元数据"""
         project.updated_at = datetime.now().isoformat()
         meta_path = cls._get_project_meta_path(project.project_id)
-        
-        with open(meta_path, 'w', encoding='utf-8') as f:
-            json.dump(project.to_dict(), f, ensure_ascii=False, indent=2)
+        cls._atomic_write_json(meta_path, project.to_dict())
     
     @classmethod
     def get_project(cls, project_id: str) -> Optional[Project]:
@@ -189,8 +264,7 @@ class ProjectManager:
         if not os.path.exists(meta_path):
             return None
         
-        with open(meta_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+        data = cls._load_json(meta_path)
         
         return Project.from_dict(data)
     
@@ -275,8 +349,7 @@ class ProjectManager:
     def save_extracted_text(cls, project_id: str, text: str) -> None:
         """保存提取的文本"""
         text_path = cls._get_project_text_path(project_id)
-        with open(text_path, 'w', encoding='utf-8') as f:
-            f.write(text)
+        cls._atomic_write_text(text_path, text)
     
     @classmethod
     def get_extracted_text(cls, project_id: str) -> Optional[str]:
@@ -286,8 +359,51 @@ class ProjectManager:
         if not os.path.exists(text_path):
             return None
         
-        with open(text_path, 'r', encoding='utf-8') as f:
-            return f.read()
+        return Path(text_path).read_text(encoding='utf-8')
+
+    @classmethod
+    def save_extracted_documents(
+        cls,
+        project_id: str,
+        documents: List[ExtractedDocument],
+    ) -> None:
+        """保存提取文档及其定位信息"""
+        documents_path = cls._get_extracted_documents_path(project_id)
+        cls._atomic_write_json(
+            documents_path,
+            [document.to_dict() for document in documents],
+        )
+
+    @classmethod
+    def get_extracted_documents(cls, project_id: str) -> List[ExtractedDocument]:
+        """获取提取文档及其定位信息"""
+        documents_path = cls._get_extracted_documents_path(project_id)
+        if not os.path.exists(documents_path):
+            return []
+        return [
+            ExtractedDocument.from_dict(item)
+            for item in cls._load_json(documents_path)
+        ]
+
+    @classmethod
+    def get_strategy_lab_artifact_path(cls, project_id: str, filename: str) -> str:
+        """获取 Strategy Lab 工件路径"""
+        strategy_lab_dir = cls.ensure_strategy_lab_dirs(project_id)
+        return os.path.join(strategy_lab_dir, filename)
+
+    @classmethod
+    def save_strategy_lab_artifact(cls, project_id: str, filename: str, data: Any) -> None:
+        """保存 Strategy Lab 工件"""
+        artifact_path = cls.get_strategy_lab_artifact_path(project_id, filename)
+        cls._atomic_write_json(artifact_path, data)
+
+    @classmethod
+    def load_strategy_lab_artifact(cls, project_id: str, filename: str) -> Optional[Any]:
+        """读取 Strategy Lab 工件"""
+        artifact_path = cls.get_strategy_lab_artifact_path(project_id, filename)
+        if not os.path.exists(artifact_path):
+            return None
+        return cls._load_json(artifact_path)
     
     @classmethod
     def get_project_files(cls, project_id: str) -> List[str]:
@@ -302,4 +418,3 @@ class ProjectManager:
             for f in os.listdir(files_dir) 
             if os.path.isfile(os.path.join(files_dir, f))
         ]
-

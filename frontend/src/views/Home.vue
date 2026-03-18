@@ -125,7 +125,7 @@
             <div class="console-section">
               <div class="console-header">
                 <span class="console-label">01 / 现实种子</span>
-                <span class="console-meta">支持格式: PDF, MD, TXT</span>
+                <span class="console-meta">支持格式: PDF, DOCX, MD, TXT</span>
               </div>
               
               <div 
@@ -140,7 +140,7 @@
                   ref="fileInput"
                   type="file"
                   multiple
-                  accept=".pdf,.md,.txt"
+                  accept=".pdf,.docx,.md,.txt"
                   @change="handleFileSelect"
                   style="display: none"
                   :disabled="loading"
@@ -182,6 +182,17 @@
                 ></textarea>
                 <div class="model-badge">引擎: MiroFish-V1.0</div>
               </div>
+              <label class="workflow-mode-field">
+                <span class="workflow-mode-label">工作流模式</span>
+                <select
+                  v-model="formData.workflowMode"
+                  class="workflow-mode-select"
+                  :disabled="loading"
+                >
+                  <option value="default">默认社交模拟</option>
+                  <option value="strategy_lab">Strategy Lab</option>
+                </select>
+              </label>
             </div>
 
             <!-- 启动按钮 -->
@@ -215,7 +226,8 @@ const router = useRouter()
 
 // 表单数据
 const formData = ref({
-  simulationRequirement: ''
+  simulationRequirement: '',
+  workflowMode: 'default',
 })
 
 // 文件列表
@@ -270,7 +282,7 @@ const handleDrop = (e) => {
 const addFiles = (newFiles) => {
   const validFiles = newFiles.filter(file => {
     const ext = file.name.split('.').pop().toLowerCase()
-    return ['pdf', 'md', 'txt'].includes(ext)
+    return ['pdf', 'docx', 'md', 'txt'].includes(ext)
   })
   files.value.push(...validFiles)
 }
@@ -294,7 +306,11 @@ const startSimulation = () => {
   
   // 存储待上传的数据
   import('../store/pendingUpload.js').then(({ setPendingUpload }) => {
-    setPendingUpload(files.value, formData.value.simulationRequirement)
+    setPendingUpload(
+      files.value,
+      formData.value.simulationRequirement,
+      formData.value.workflowMode,
+    )
     
     // 立即跳转到Process页面（使用特殊标识表示新建项目）
     router.push({
@@ -814,6 +830,29 @@ const startSimulation = () => {
   font-family: var(--font-mono);
   font-size: 0.7rem;
   color: #AAA;
+}
+
+.workflow-mode-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.workflow-mode-label {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: #666;
+  letter-spacing: 0.08em;
+}
+
+.workflow-mode-select {
+  border: 1px solid #DDD;
+  background: #FFF;
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  outline: none;
 }
 
 .start-engine-btn {
