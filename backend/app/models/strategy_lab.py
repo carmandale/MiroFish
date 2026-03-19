@@ -164,12 +164,14 @@ class ChunkManifestEntry:
 class CitationRecord:
     """报告或评分卡中的引用记录"""
 
-    chunk_id: str
+    chunk_id: Optional[str]
     filename: str
     locator: str
     quote: str
     episode_uuid: Optional[str] = None
     source_label: AnalysisSourceLabel = AnalysisSourceLabel.RESEARCH_CITATION
+    source_kind: str = "research_chunk"
+    source_path: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return _serialize(self)
@@ -190,6 +192,9 @@ class LaneTemplate:
     procurement_gates: List[str] = field(default_factory=list)
     capability_requirements: List[str] = field(default_factory=list)
     required_internal_inputs: List[str] = field(default_factory=list)
+    required_citations: List[str] = field(default_factory=list)
+    expected_narrative_outputs: List[str] = field(default_factory=list)
+    expected_final_outputs: List[str] = field(default_factory=list)
     scorecard_dimensions: List[str] = field(default_factory=list)
     monte_carlo_fields: List[str] = field(default_factory=list)
 
@@ -210,6 +215,9 @@ class LaneTemplate:
             procurement_gates=data.get("procurement_gates", []),
             capability_requirements=data.get("capability_requirements", []),
             required_internal_inputs=data.get("required_internal_inputs", []),
+            required_citations=data.get("required_citations", []),
+            expected_narrative_outputs=data.get("expected_narrative_outputs", []),
+            expected_final_outputs=data.get("expected_final_outputs", []),
             scorecard_dimensions=data.get("scorecard_dimensions", []),
             monte_carlo_fields=data.get("monte_carlo_fields", []),
         )

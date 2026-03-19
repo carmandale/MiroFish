@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -99,6 +100,9 @@ class StrategyLabService:
                 procurement_gates=["budget_alignment", "renewal_timing", "scope_expansion"],
                 capability_requirements=["account_growth_capacity", "delivery_margin_control", "case_study_evidence"],
                 required_internal_inputs=["current_team_capacity", "top_accounts", "margin_floor"],
+                required_citations=["research_bundle", "lane_template", "narrative_summary"],
+                expected_narrative_outputs=["narrative_summary.json", "interviews.json"],
+                expected_final_outputs=["private_analysis.json", "comparative_report.json"],
                 scorecard_dimensions=cls.DEFAULT_SCORECARD_DIMENSIONS,
                 monte_carlo_fields=["pipeline_size", "close_rate", "sales_cycle_days"],
             ),
@@ -114,6 +118,9 @@ class StrategyLabService:
                 procurement_gates=["compliance_review", "pilot_scope", "reference_check"],
                 capability_requirements=["regulated_content_delivery", "enterprise_procurement_readiness", "outcome_measurement"],
                 required_internal_inputs=["existing_healthcare_cases", "delivery_capacity", "margin_floor"],
+                required_citations=["research_bundle", "lane_template", "narrative_summary"],
+                expected_narrative_outputs=["narrative_summary.json", "interviews.json"],
+                expected_final_outputs=["private_analysis.json", "comparative_report.json"],
                 scorecard_dimensions=cls.DEFAULT_SCORECARD_DIMENSIONS,
                 monte_carlo_fields=["pipeline_size", "close_rate", "sales_cycle_days"],
             ),
@@ -129,6 +136,9 @@ class StrategyLabService:
                 procurement_gates=["vehicle_access", "security_review", "past_performance", "cashflow_gap"],
                 capability_requirements=["clearance_partner_strategy", "proposal_ops", "delivery_capacity"],
                 required_internal_inputs=["current_team_capacity", "partner_list", "margin_floor"],
+                required_citations=["research_bundle", "lane_template", "narrative_summary"],
+                expected_narrative_outputs=["narrative_summary.json", "interviews.json"],
+                expected_final_outputs=["private_analysis.json", "comparative_report.json"],
                 scorecard_dimensions=cls.DEFAULT_SCORECARD_DIMENSIONS,
                 monte_carlo_fields=["pipeline_size", "close_rate", "sales_cycle_days"],
             ),
@@ -144,6 +154,9 @@ class StrategyLabService:
                 procurement_gates=["platform_fit", "deployment_readiness", "it_security"],
                 capability_requirements=["enterprise_solution_packaging", "platform_partnerships", "deployment_capacity"],
                 required_internal_inputs=["target_accounts", "partner_list", "team_capacity"],
+                required_citations=["research_bundle", "lane_template", "narrative_summary"],
+                expected_narrative_outputs=["narrative_summary.json", "interviews.json"],
+                expected_final_outputs=["private_analysis.json", "comparative_report.json"],
                 scorecard_dimensions=cls.DEFAULT_SCORECARD_DIMENSIONS,
                 monte_carlo_fields=["pipeline_size", "close_rate", "sales_cycle_days"],
             ),
@@ -159,6 +172,9 @@ class StrategyLabService:
                 procurement_gates=["margin_floor", "scope_control", "staffing_capacity"],
                 capability_requirements=["partner_filtering", "rapid_delivery_capacity", "margin_discipline"],
                 required_internal_inputs=["partner_list", "margin_floor", "team_capacity"],
+                required_citations=["research_bundle", "lane_template", "narrative_summary"],
+                expected_narrative_outputs=["narrative_summary.json", "interviews.json"],
+                expected_final_outputs=["private_analysis.json", "comparative_report.json"],
                 scorecard_dimensions=cls.DEFAULT_SCORECARD_DIMENSIONS,
                 monte_carlo_fields=["pipeline_size", "close_rate", "sales_cycle_days"],
             ),
@@ -289,12 +305,17 @@ class StrategyLabService:
     def run_private_analysis_async(cls, project_id: str, graph_id: str, lane_id: str) -> LaneRunStatus:
         cls.get_lane_template(project_id, lane_id)
         cls._acquire_lane_lock_or_raise(project_id, lane_id)
+        run_status, lane_context = cls.prepare_lane_run(project_id, lane_id)
 
-        run_status = cls._analysis_run_status(project_id, lane_id)
-
-        def worker():
+        def worker() -> None:
             try:
-                cls._execute_private_analysis(project_id, graph_id, lane_id, run_status)
+                cls._execute_lane_workflow(
+                    project_id=project_id,
+                    graph_id=graph_id,
+                    lane_id=lane_id,
+                    run_status=run_status,
+                    lane_context=lane_context,
+                )
             except Exception as exc:  # pragma: no cover - defensive thread logging
                 cls._mark_run_failed(project_id, lane_id, run_status, str(exc))
                 logger.exception("Strategy Lab lane run failed: %s", exc)
@@ -310,7 +331,7 @@ class StrategyLabService:
         templates = cls.load_lane_templates(project_id)
         batch_id = f"batch_{uuid.uuid4().hex[:12]}"
 
-        def worker():
+        def worker() -> None:
             for template in templates:
                 try:
                     cls._acquire_lane_lock_or_raise(project_id, template.lane_id)
@@ -318,9 +339,15 @@ class StrategyLabService:
                     logger.info("Lane already running, skipping duplicate batch launch: %s", template.lane_id)
                     continue
 
-                run_status = cls._analysis_run_status(project_id, template.lane_id)
+                run_status, lane_context = cls.prepare_lane_run(project_id, template.lane_id)
                 try:
-                    cls._execute_private_analysis(project_id, graph_id, template.lane_id, run_status)
+                    cls._execute_lane_workflow(
+                        project_id=project_id,
+                        graph_id=graph_id,
+                        lane_id=template.lane_id,
+                        run_status=run_status,
+                        lane_context=lane_context,
+                    )
                 except Exception as exc:  # pragma: no cover - defensive thread logging
                     cls._mark_run_failed(project_id, template.lane_id, run_status, str(exc))
                     logger.exception("Strategy Lab batch lane failed: %s", exc)
@@ -383,6 +410,7 @@ class StrategyLabService:
             status = cls.get_lane_status(project_id, lane_id)
             if not status or status.status != "completed":
                 raise ValueError(f"lane 尚未完成: {lane_id}")
+            cls._require_narrative_artifacts(status)
 
             analysis_path = status.artifact_paths.get("private_analysis_json")
             if not analysis_path or not os.path.exists(analysis_path):
@@ -409,8 +437,12 @@ class StrategyLabService:
 
                 resolved_citations = []
                 for index, citation in enumerate(metric.citations, start=1):
-                    if citation.chunk_id not in valid_chunk_ids:
-                        raise ValueError(f"{lane_id}/{dimension} 引用了无 provenance 的 chunk: {citation.chunk_id}")
+                    cls._validate_citation_source(
+                        lane_id=lane_id,
+                        dimension=dimension,
+                        citation=citation,
+                        valid_chunk_ids=valid_chunk_ids,
+                    )
                     citation_id = metric.citation_ids[index - 1] if index - 1 < len(metric.citation_ids) else f"{lane_id}:{dimension}:{index:02d}"
                     citations[citation_id] = citation
                     resolved_citations.append(citation_id)
@@ -460,19 +492,26 @@ class StrategyLabService:
             raise ValueError(f"未找到 citation: {citation_id}")
 
         citation = cls._citation_from_dict(citation_payload)
-        chunk_manifest = ProjectManager.load_strategy_lab_artifact(project_id, "chunk_manifest.json") or []
-        matched_chunk = next(
-            (item for item in chunk_manifest if item.get("chunk_id") == citation.chunk_id),
-            None,
-        )
-        if not matched_chunk:
-            raise ValueError(f"citation 缺少 manifest-backed provenance: {citation_id}")
-
-        return {
+        payload = {
             "citation_id": citation_id,
             "citation": citation.to_dict(),
-            "chunk": matched_chunk,
         }
+        if citation.source_label == AnalysisSourceLabel.RESEARCH_CITATION:
+            chunk_manifest = ProjectManager.load_strategy_lab_artifact(project_id, "chunk_manifest.json") or []
+            matched_chunk = next(
+                (item for item in chunk_manifest if item.get("chunk_id") == citation.chunk_id),
+                None,
+            )
+            if not matched_chunk:
+                raise ValueError(f"citation 缺少 manifest-backed provenance: {citation_id}")
+            payload["source"] = {
+                "kind": "research_chunk",
+                "path": citation.source_path,
+                "chunk": matched_chunk,
+            }
+        else:
+            payload["source"] = cls._load_non_chunk_source_payload(citation)
+        return payload
 
     @classmethod
     def project_overview(cls, project_id: str) -> Dict[str, Any]:
@@ -494,6 +533,7 @@ class StrategyLabService:
         run_dir = cls._run_dir(project_id, lane_id, run_status.run_id)
         os.makedirs(run_dir, exist_ok=True)
 
+        interview_path, narrative_summary_path = cls._require_narrative_artifacts(run_status)
         interview_artifact = cls._load_interview_artifact_for_run(run_status)
         narrative_summary = cls._load_narrative_summary_for_run(run_status)
 
@@ -502,6 +542,8 @@ class StrategyLabService:
             lane_template=template,
             interviews_markdown=interview_artifact.transcript_markdown if interview_artifact else None,
             narrative_summary=narrative_summary,
+            interview_source_path=interview_path,
+            narrative_source_path=narrative_summary_path,
         )
 
         private_analysis_json_path = os.path.join(run_dir, "private_analysis.json")
@@ -534,6 +576,71 @@ class StrategyLabService:
             cls.compose_comparative_report(project_id)
         except ValueError:
             logger.info("Comparative report deferred until all lanes complete")
+
+    @classmethod
+    def _execute_lane_workflow(
+        cls,
+        *,
+        project_id: str,
+        graph_id: str,
+        lane_id: str,
+        run_status: LaneRunStatus,
+        lane_context: LaneRunContext,
+    ) -> None:
+        from .simulation_manager import SimulationManager, SimulationStatus
+        from .simulation_runner import SimulationRunner
+        from .strategy_lab_interviews import StrategyLabInterviewService
+
+        project = ProjectManager.get_project(project_id)
+        if not project:
+            raise ValueError(f"项目不存在: {project_id}")
+        if not project.simulation_requirement:
+            raise ValueError("项目缺少模拟需求描述 (simulation_requirement)")
+
+        manager = SimulationManager()
+        cls._update_run_stage(run_status, "narrative_setup")
+        state = manager.create_simulation(
+            project_id=project_id,
+            graph_id=graph_id,
+            workflow_mode=WorkflowMode.STRATEGY_LAB,
+            lane_id=lane_id,
+            lane_context_path=lane_context.lane_context_path,
+        )
+        run_status = cls.attach_simulation(project_id, lane_id, run_status.run_id, state.simulation_id)
+        cls._update_run_stage(run_status, "simulation_created")
+
+        prepared_state = manager.prepare_simulation(
+            simulation_id=state.simulation_id,
+            simulation_requirement=project.simulation_requirement,
+            document_text=ProjectManager.get_extracted_text(project_id) or "",
+            lane_context=lane_context,
+        )
+        run_status = cls.mark_narrative_prepared(project_id, lane_id, run_status.run_id)
+        cls._update_run_stage(run_status, "narrative_running")
+
+        SimulationRunner.start_simulation(
+            simulation_id=prepared_state.simulation_id,
+            platform="parallel",
+            max_rounds=1,
+        )
+        cls._wait_for_env_alive(prepared_state.simulation_id)
+
+        interview_artifact, interview_path, narrative_summary_path = (
+            StrategyLabInterviewService.capture_for_simulation(prepared_state)
+        )
+        run_status = cls.attach_interview_artifacts(
+            project_id=project_id,
+            lane_id=lane_id,
+            run_id=run_status.run_id,
+            interview_path=interview_path,
+            narrative_summary_path=narrative_summary_path,
+        )
+        SimulationRunner.close_simulation_env(prepared_state.simulation_id)
+        prepared_state.status = SimulationStatus.COMPLETED
+        manager._save_simulation_state(prepared_state)
+
+        cls._update_run_stage(run_status, "private_analysis")
+        cls._execute_private_analysis(project_id, graph_id, lane_id, run_status)
 
     @classmethod
     def _create_run_status(
@@ -610,6 +717,9 @@ class StrategyLabService:
                 "procurement_gates": template.procurement_gates,
                 "capability_requirements": template.capability_requirements,
                 "required_internal_inputs": template.required_internal_inputs,
+                "required_citations": template.required_citations,
+                "expected_narrative_outputs": template.expected_narrative_outputs,
+                "expected_final_outputs": template.expected_final_outputs,
                 "scorecard_dimensions": template.scorecard_dimensions,
             }
             for field_name, value in required_lists.items():
@@ -646,6 +756,80 @@ class StrategyLabService:
         lock = cls._lane_locks.get(cls._lane_lock_key(project_id, lane_id))
         if lock and lock.locked():
             lock.release()
+
+    @classmethod
+    def _update_run_stage(cls, run_status: LaneRunStatus, stage: str) -> None:
+        run_status.status = "running"
+        run_status.stage = stage
+        run_status.updated_at = datetime.now().isoformat()
+        cls._save_run_status(run_status)
+
+    @staticmethod
+    def _wait_for_env_alive(simulation_id: str, timeout_seconds: float = 60.0, poll_interval: float = 1.0) -> None:
+        from .simulation_runner import RunnerStatus, SimulationRunner
+
+        deadline = time.time() + timeout_seconds
+        while time.time() < deadline:
+            if SimulationRunner.check_env_alive(simulation_id):
+                return
+            run_state = SimulationRunner.get_run_state(simulation_id)
+            if run_state and run_state.runner_status in {
+                RunnerStatus.COMPLETED,
+                RunnerStatus.FAILED,
+                RunnerStatus.STOPPED,
+            }:
+                break
+            time.sleep(poll_interval)
+        raise ValueError(f"模拟环境未在超时时间内就绪，无法捕获 strategy-lab 访谈: {simulation_id}")
+
+    @staticmethod
+    def _require_narrative_artifacts(run_status: LaneRunStatus) -> tuple[str, str]:
+        interview_path = run_status.artifact_paths.get("interviews")
+        narrative_summary_path = run_status.artifact_paths.get("narrative_summary_json")
+        if not interview_path or not os.path.exists(interview_path):
+            raise ValueError(f"lane 缺少 narrative interview artifact: {run_status.lane_id}")
+        if not narrative_summary_path or not os.path.exists(narrative_summary_path):
+            raise ValueError(f"lane 缺少 narrative summary artifact: {run_status.lane_id}")
+        return interview_path, narrative_summary_path
+
+    @staticmethod
+    def _validate_citation_source(
+        *,
+        lane_id: str,
+        dimension: str,
+        citation: CitationRecord,
+        valid_chunk_ids: Dict[str, Dict[str, Any]],
+    ) -> None:
+        if citation.source_label == AnalysisSourceLabel.RESEARCH_CITATION:
+            if not citation.chunk_id or citation.chunk_id not in valid_chunk_ids:
+                raise ValueError(f"{lane_id}/{dimension} 引用了无 provenance 的 chunk: {citation.chunk_id}")
+            return
+        if citation.source_label in {
+            AnalysisSourceLabel.NARRATIVE_SIMULATION,
+            AnalysisSourceLabel.PRIVATE_ANALYSIS,
+        }:
+            if not citation.source_path or not os.path.exists(citation.source_path):
+                raise ValueError(f"{lane_id}/{dimension} 缺少 artifact-backed provenance: {citation.filename}")
+            return
+        if citation.source_label == AnalysisSourceLabel.MONTE_CARLO_ATTACHMENT:
+            return
+        raise ValueError(f"{lane_id}/{dimension} 使用了未知 source_label: {citation.source_label}")
+
+    @staticmethod
+    def _load_non_chunk_source_payload(citation: CitationRecord) -> Dict[str, Any]:
+        artifact_payload: Any = None
+        if citation.source_path and os.path.exists(citation.source_path):
+            if citation.source_path.endswith(".json"):
+                with open(citation.source_path, "r", encoding="utf-8") as handle:
+                    artifact_payload = json.load(handle)
+            else:
+                with open(citation.source_path, "r", encoding="utf-8") as handle:
+                    artifact_payload = handle.read()
+        return {
+            "kind": citation.source_kind,
+            "path": citation.source_path,
+            "artifact": artifact_payload,
+        }
 
     @staticmethod
     def _atomic_write_json(path: str, data: Any) -> None:
@@ -729,12 +913,14 @@ class StrategyLabService:
     @staticmethod
     def _citation_from_dict(data: Dict[str, Any]) -> CitationRecord:
         return CitationRecord(
-            chunk_id=data["chunk_id"],
+            chunk_id=data.get("chunk_id"),
             filename=data.get("filename", ""),
             locator=data.get("locator", ""),
             quote=data.get("quote", ""),
             episode_uuid=data.get("episode_uuid"),
             source_label=AnalysisSourceLabel(data.get("source_label", AnalysisSourceLabel.RESEARCH_CITATION.value)),
+            source_kind=data.get("source_kind", "research_chunk"),
+            source_path=data.get("source_path"),
         )
 
     @classmethod

@@ -61,6 +61,8 @@ class PrivateAnalysisAgent:
         interviews_markdown: Optional[str] = None,
         narrative_summary: Optional[str] = None,
         monte_carlo_attachment: Optional[str] = None,
+        interview_source_path: Optional[str] = None,
+        narrative_source_path: Optional[str] = None,
     ) -> Tuple[LaneScorecard, Dict[str, CitationRecord]]:
         chunk_manifest = ProjectManager.load_strategy_lab_artifact(
             self.project_id,
@@ -78,7 +80,17 @@ class PrivateAnalysisAgent:
             raise ValueError("chunk_manifest.json 中没有带 episode_uuid 的可引用证据")
 
         selected_chunks = self._select_relevant_chunks(lane_template, chunks)
-        citation_index = self._build_citation_index(lane_template, selected_chunks)
+        citation_index = {
+            **self._build_research_citation_index(lane_template, selected_chunks),
+            **self._build_narrative_citation_index(
+                lane_template,
+                interviews_markdown=interviews_markdown,
+                narrative_summary=narrative_summary,
+                interview_source_path=interview_source_path,
+                narrative_source_path=narrative_source_path,
+            ),
+            **self._build_private_citation_index(lane_template),
+        }
 
         prompt = self._build_prompt(
             lane_template=lane_template,
@@ -103,6 +115,8 @@ class PrivateAnalysisAgent:
                 result=result,
                 citation_index=citation_index,
                 monte_carlo_attachment=monte_carlo_attachment,
+                interviews_markdown=interviews_markdown,
+                narrative_summary=narrative_summary,
             ),
             citation_index,
         )
@@ -182,6 +196,15 @@ interviews_markdown:
 evidence_bundle:
 {chr(10).join(evidence_lines)}
 
+source_rules:
+- 如果某个 metric 使用 research 开头的 citation_id，source_label 必须是 research_citation。
+- 如果某个 metric 使用 narrative 开头的 citation_id，source_label 必须是 narrative_simulation。
+- 如果某个 metric 使用 private 开头的 citation_id，source_label 必须是 private_analysis。
+- narrative_summary 或 interviews_markdown 不为 none 时，至少 1 个维度必须使用 narrative citation。
+- 至少 1 个维度必须使用 private citation。
+- 至少 1 个维度必须使用 research citation。
+- 只有 Monte Carlo attachment 可以不带 citation_ids。
+
 输出格式：
 {{
   "summary": "string",
@@ -233,14 +256,14 @@ evidence_bundle:
             return selected
         return [item[2] for item in scored[: self.MAX_EXCERPTS]]
 
-    def _build_citation_index(
+    def _build_research_citation_index(
         self,
         lane_template: LaneTemplate,
         chunks: List[ChunkManifestEntry],
     ) -> Dict[str, CitationRecord]:
         citation_index: Dict[str, CitationRecord] = {}
         for index, chunk in enumerate(chunks, start=1):
-            citation_id = f"{lane_template.lane_id}:citation:{index:02d}"
+            citation_id = f"{lane_template.lane_id}:research:{index:02d}"
             citation_index[citation_id] = CitationRecord(
                 chunk_id=chunk.chunk_id,
                 filename=chunk.filename,
@@ -248,8 +271,71 @@ evidence_bundle:
                 quote=chunk.text[:600],
                 episode_uuid=chunk.episode_uuid,
                 source_label=AnalysisSourceLabel.RESEARCH_CITATION,
+                source_kind="research_chunk",
             )
         return citation_index
+
+    def _build_narrative_citation_index(
+        self,
+        lane_template: LaneTemplate,
+        *,
+        interviews_markdown: Optional[str],
+        narrative_summary: Optional[str],
+        interview_source_path: Optional[str],
+        narrative_source_path: Optional[str],
+    ) -> Dict[str, CitationRecord]:
+        citation_index: Dict[str, CitationRecord] = {}
+
+        if narrative_summary:
+            citation_index[f"{lane_template.lane_id}:narrative:summary"] = CitationRecord(
+                chunk_id=None,
+                filename="narrative_summary.json",
+                locator="summary_markdown",
+                quote=narrative_summary[:600],
+                source_label=AnalysisSourceLabel.NARRATIVE_SIMULATION,
+                source_kind="narrative_summary",
+                source_path=narrative_source_path,
+            )
+
+        if interviews_markdown:
+            citation_index[f"{lane_template.lane_id}:narrative:interviews"] = CitationRecord(
+                chunk_id=None,
+                filename="interviews.json",
+                locator="transcript_markdown",
+                quote=interviews_markdown[:600],
+                source_label=AnalysisSourceLabel.NARRATIVE_SIMULATION,
+                source_kind="interview_transcript",
+                source_path=interview_source_path,
+            )
+
+        return citation_index
+
+    def _build_private_citation_index(
+        self,
+        lane_template: LaneTemplate,
+    ) -> Dict[str, CitationRecord]:
+        lane_template_path = ProjectManager.get_strategy_lab_artifact_path(
+            self.project_id,
+            "lane_templates.json",
+        )
+        quote = (
+            f"Hypothesis: {lane_template.hypothesis}\n"
+            f"Committee roles: {', '.join(lane_template.private_committee_roles)}\n"
+            f"Procurement gates: {', '.join(lane_template.procurement_gates)}\n"
+            f"Capability requirements: {', '.join(lane_template.capability_requirements)}\n"
+            f"Required internal inputs: {', '.join(lane_template.required_internal_inputs)}"
+        )
+        return {
+            f"{lane_template.lane_id}:private:template": CitationRecord(
+                chunk_id=None,
+                filename="lane_templates.json",
+                locator=f"lane_template:{lane_template.lane_id}",
+                quote=quote[:600],
+                source_label=AnalysisSourceLabel.PRIVATE_ANALYSIS,
+                source_kind="lane_template",
+                source_path=lane_template_path,
+            )
+        }
 
     def _validate_scorecard_result(
         self,
@@ -258,6 +344,8 @@ evidence_bundle:
         result: Dict[str, object],
         citation_index: Dict[str, CitationRecord],
         monte_carlo_attachment: Optional[str],
+        interviews_markdown: Optional[str],
+        narrative_summary: Optional[str],
     ) -> LaneScorecard:
         metrics_payload = result.get("metrics")
         if not isinstance(metrics_payload, dict):
@@ -277,13 +365,25 @@ evidence_bundle:
                 raise ValueError(f"{dimension} 的 citation_ids 必须是数组")
 
             resolved_citations = []
+            inferred_sources = set()
             if source_label != AnalysisSourceLabel.MONTE_CARLO_ATTACHMENT:
                 if not citation_ids:
                     raise ValueError(f"{dimension} 缺少 citation_ids")
                 for citation_id in citation_ids:
                     if citation_id not in citation_index:
                         raise ValueError(f"{dimension} 使用了未知 citation_id: {citation_id}")
-                    resolved_citations.append(citation_index[citation_id])
+                    citation = citation_index[citation_id]
+                    resolved_citations.append(citation)
+                    inferred_sources.add(citation.source_label)
+                if len(inferred_sources) != 1:
+                    raise ValueError(f"{dimension} 的 citation_ids 必须来自同一种 source_label")
+                inferred_source = next(iter(inferred_sources))
+                if source_label != inferred_source:
+                    raise ValueError(
+                        f"{dimension} 的 source_label={source_label.value} 与 citation_ids 的来源不一致"
+                    )
+            elif not (metric_payload.get("monte_carlo_attachment") or monte_carlo_attachment):
+                raise ValueError(f"{dimension} 使用 monte_carlo_attachment 但缺少附件内容")
 
             metrics[dimension] = LaneMetricResult(
                 dimension=dimension,
@@ -300,6 +400,10 @@ evidence_bundle:
 
         assumptions = result.get("assumptions", [])
         caveats = result.get("caveats", [])
+        self._validate_source_coverage(
+            metrics,
+            require_narrative=bool(interviews_markdown or narrative_summary),
+        )
         return LaneScorecard(
             lane_id=lane_template.lane_id,
             display_name=lane_template.display_name,
@@ -308,3 +412,17 @@ evidence_bundle:
             assumptions=assumptions if isinstance(assumptions, list) else [],
             caveats=caveats if isinstance(caveats, list) else [],
         )
+
+    @staticmethod
+    def _validate_source_coverage(
+        metrics: Dict[str, LaneMetricResult],
+        *,
+        require_narrative: bool,
+    ) -> None:
+        labels = {metric.source_label for metric in metrics.values()}
+        if require_narrative and AnalysisSourceLabel.NARRATIVE_SIMULATION not in labels:
+            raise ValueError("scorecard 在存在 narrative artifacts 时至少需要 1 个 narrative_simulation 维度")
+        if AnalysisSourceLabel.RESEARCH_CITATION not in labels:
+            raise ValueError("scorecard 至少需要 1 个 research_citation 维度")
+        if AnalysisSourceLabel.PRIVATE_ANALYSIS not in labels:
+            raise ValueError("scorecard 至少需要 1 个 private_analysis 维度")

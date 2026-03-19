@@ -5,7 +5,7 @@
       <div class="topbar-actions">
         <button class="ghost-btn" :disabled="loading || actionLoading" @click="refreshAll">刷新</button>
         <button class="primary-btn" :disabled="!projectReady || actionLoading" @click="runAllAnalyses">
-          运行五条路径
+          运行五条路径工作流
         </button>
       </div>
     </header>
@@ -51,7 +51,7 @@
             <p class="lane-summary">{{ template.hypothesis }}</p>
             <div class="lane-actions">
               <button class="ghost-btn small" :disabled="!projectReady || actionLoading" @click.stop="runLane(template.lane_id)">
-                运行
+                运行工作流
               </button>
               <button class="ghost-btn small" :disabled="actionLoading" @click.stop="loadLaneInterview(template.lane_id)">
                 访谈
@@ -137,6 +137,7 @@
                   <td v-for="dimension in dimensions" :key="dimension">
                     <div class="metric-score">{{ row.metrics[dimension]?.score || '-' }}</div>
                     <div class="metric-judgment">{{ row.metrics[dimension]?.judgment || '-' }}</div>
+                    <div class="metric-source">{{ row.metrics[dimension]?.source_label || '-' }}</div>
                     <div class="citation-links">
                       <button
                         v-for="citationId in row.metrics[dimension]?.citation_ids || []"
@@ -167,22 +168,35 @@
             <div class="panel-title">Source Inspector</div>
             <div v-if="sourcePayload" class="source-card">
               <div class="meta-row">
+                <span>Source Label</span>
+                <strong>{{ sourcePayload.citation.source_label }}</strong>
+              </div>
+              <div class="meta-row">
                 <span>Filename</span>
-                <strong>{{ sourcePayload.chunk.filename }}</strong>
+                <strong>{{ sourcePayload.citation.filename }}</strong>
               </div>
               <div class="meta-row">
                 <span>Locator</span>
                 <code>{{ sourcePayload.citation.locator }}</code>
               </div>
-              <div class="meta-row">
-                <span>Chunk</span>
-                <code>{{ sourcePayload.chunk.chunk_id }}</code>
+              <div v-if="sourcePayload.source?.kind" class="meta-row">
+                <span>Kind</span>
+                <code>{{ sourcePayload.source.kind }}</code>
               </div>
-              <div class="meta-row">
+              <div v-if="sourcePayload.source?.path" class="meta-row">
+                <span>Path</span>
+                <code>{{ sourcePayload.source.path }}</code>
+              </div>
+              <div v-if="sourcePayload.source?.chunk" class="meta-row">
+                <span>Chunk</span>
+                <code>{{ sourcePayload.source.chunk.chunk_id }}</code>
+              </div>
+              <div v-if="sourcePayload.source?.chunk" class="meta-row">
                 <span>Episode</span>
-                <code>{{ sourcePayload.chunk.episode_uuid }}</code>
+                <code>{{ sourcePayload.source.chunk.episode_uuid }}</code>
               </div>
               <p class="source-quote">{{ sourcePayload.citation.quote }}</p>
+              <pre v-if="sourceArtifactPreview" class="source-artifact">{{ sourceArtifactPreview }}</pre>
             </div>
             <div v-else class="empty-state">点击报告中的 citation_id 以检查 provenance。</div>
           </div>
@@ -247,6 +261,11 @@ const projectReady = computed(() => Boolean(projectData.value?.graph_id))
 const comparativeRows = computed(() => comparativeReport.value?.rows || [])
 const comparativeReportHtml = computed(() => renderSafeMarkdown(comparativeReport.value?.markdown_summary || ''))
 const transcriptHtml = computed(() => renderSafeMarkdown(transcriptMarkdown.value))
+const sourceArtifactPreview = computed(() => {
+  const artifact = sourcePayload.value?.source?.artifact
+  if (!artifact) return ''
+  return typeof artifact === 'string' ? artifact : JSON.stringify(artifact, null, 2)
+})
 
 const statusClass = (status = 'idle') => {
   if (status === 'completed') return 'success'
@@ -743,6 +762,14 @@ th {
   margin-bottom: 8px;
 }
 
+.metric-source {
+  color: #8b5e3c;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
+}
+
 .citation-links {
   display: flex;
   flex-wrap: wrap;
@@ -786,6 +813,19 @@ th {
 .source-card {
   display: grid;
   gap: 10px;
+}
+
+.source-artifact {
+  margin: 0;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(22, 22, 22, 0.04);
+  color: #444;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .empty-state {
