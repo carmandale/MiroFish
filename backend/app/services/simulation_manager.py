@@ -13,6 +13,7 @@ from datetime import datetime
 from enum import Enum
 
 from ..config import Config
+from ..models.strategy_lab import LaneRunContext, WorkflowMode
 from ..utils.logger import get_logger
 from .zep_entity_reader import ZepEntityReader, FilteredEntities
 from .oasis_profile_generator import OasisProfileGenerator, OasisAgentProfile
@@ -45,6 +46,9 @@ class SimulationState:
     simulation_id: str
     project_id: str
     graph_id: str
+    workflow_mode: WorkflowMode = WorkflowMode.DEFAULT
+    lane_id: Optional[str] = None
+    lane_context_path: Optional[str] = None
     
     # 平台启用状态
     enable_twitter: bool = True
@@ -80,6 +84,9 @@ class SimulationState:
             "simulation_id": self.simulation_id,
             "project_id": self.project_id,
             "graph_id": self.graph_id,
+            "workflow_mode": self.workflow_mode.value if isinstance(self.workflow_mode, WorkflowMode) else self.workflow_mode,
+            "lane_id": self.lane_id,
+            "lane_context_path": self.lane_context_path,
             "enable_twitter": self.enable_twitter,
             "enable_reddit": self.enable_reddit,
             "status": self.status.value,
@@ -102,6 +109,9 @@ class SimulationState:
             "simulation_id": self.simulation_id,
             "project_id": self.project_id,
             "graph_id": self.graph_id,
+            "workflow_mode": self.workflow_mode.value if isinstance(self.workflow_mode, WorkflowMode) else self.workflow_mode,
+            "lane_id": self.lane_id,
+            "lane_context_path": self.lane_context_path,
             "status": self.status.value,
             "entities_count": self.entities_count,
             "profiles_count": self.profiles_count,
@@ -171,6 +181,9 @@ class SimulationManager:
             simulation_id=simulation_id,
             project_id=data.get("project_id", ""),
             graph_id=data.get("graph_id", ""),
+            workflow_mode=WorkflowMode(data.get("workflow_mode", WorkflowMode.DEFAULT.value)),
+            lane_id=data.get("lane_id"),
+            lane_context_path=data.get("lane_context_path"),
             enable_twitter=data.get("enable_twitter", True),
             enable_reddit=data.get("enable_reddit", True),
             status=SimulationStatus(data.get("status", "created")),
@@ -196,6 +209,9 @@ class SimulationManager:
         graph_id: str,
         enable_twitter: bool = True,
         enable_reddit: bool = True,
+        workflow_mode: WorkflowMode = WorkflowMode.DEFAULT,
+        lane_id: Optional[str] = None,
+        lane_context_path: Optional[str] = None,
     ) -> SimulationState:
         """
         创建新的模拟
@@ -216,6 +232,9 @@ class SimulationManager:
             simulation_id=simulation_id,
             project_id=project_id,
             graph_id=graph_id,
+            workflow_mode=workflow_mode,
+            lane_id=lane_id,
+            lane_context_path=lane_context_path,
             enable_twitter=enable_twitter,
             enable_reddit=enable_reddit,
             status=SimulationStatus.CREATED,
@@ -234,7 +253,8 @@ class SimulationManager:
         defined_entity_types: Optional[List[str]] = None,
         use_llm_for_profiles: bool = True,
         progress_callback: Optional[callable] = None,
-        parallel_profile_count: int = 3
+        parallel_profile_count: int = 3,
+        lane_context: Optional[LaneRunContext] = None,
     ) -> SimulationState:
         """
         准备模拟环境（全程自动化）
@@ -407,7 +427,8 @@ class SimulationManager:
                 document_text=document_text,
                 entities=filtered.entities,
                 enable_twitter=state.enable_twitter,
-                enable_reddit=state.enable_reddit
+                enable_reddit=state.enable_reddit,
+                lane_context=lane_context,
             )
             
             if progress_callback:

@@ -13,7 +13,7 @@ bead: bd-1cv
 
 ## Prerequisites
 
-- [ ] **T0: Lock the canonical corpus and five lane fixtures**
+- [x] **T0: Lock the canonical corpus and five lane fixtures**
   - Treat the quickbooks research package at the corrected `/Dale Carman/` path as the canonical source set for `002`.
   - Capture validated fixtures for all five strategic lanes, with the defense lane as the first proving fixture.
   - Verify the representative corpus sample can be extracted through the strategy-lab intake path.
@@ -62,14 +62,14 @@ bead: bd-1cv
 
 ## Narrative Adapter
 
-- [ ] **T6: Wire lane context into ontology and simulation prep**
+- [x] **T6: Wire lane context into ontology and simulation prep**
   - Propagate `workflow_mode`, `lane_id`, and `lane_context_path` into simulation state.
   - Extend `SimulationManager.prepare_simulation(...)`, `SimulationConfigGenerator.generate_config(...)`, and `OntologyGenerator.generate(...)` to accept `LaneRunContext`.
   - Treat the runtime as public-discourse simulation only, not procurement prediction.
   - **Verify:** strategy-lab simulation artifacts serialize with lane metadata and distinct prompt framing.
   - **Depends on:** T1, T3
 
-- [ ] **T7: Add pre-teardown interview capture and persistence**
+- [x] **T7: Add pre-teardown interview capture and persistence**
   - Trigger curated batch interviews while the environment is still alive.
   - Persist transcripts under project-scoped strategy-lab artifacts for each lane run.
   - Keep v1 as transcript review only.
@@ -93,14 +93,14 @@ bead: bd-1cv
 
 ## Hardening
 
-- [ ] **T10: Add safety and operability controls**
+- [x] **T10: Add safety and operability controls**
   - Replace wildcard CORS with an environment-scoped allowlist, at minimum for non-dev mode.
   - Add atomic artifact writes, per-lane locking, resumable run state, and structured logging.
   - Preserve prior successful artifacts on rerun instead of overwriting in place.
   - **Verify:** duplicate overlapping lane runs are rejected or serialized, and reruns produce new run directories without corrupting `current/<lane_id>.json`.
   - **Depends on:** T2, T3, T5
 
-- [ ] **T11: Add focused regression coverage**
+- [x] **T11: Add focused regression coverage**
   - Add parser coverage for `.docx`.
   - Add serialization coverage for `workflow_mode`, lane templates, manifests, and comparative completeness.
   - Add a test proving private analysis works without `simulation_id`.
@@ -108,7 +108,7 @@ bead: bd-1cv
   - **Verify:** relevant backend/frontend test targets pass.
   - **Depends on:** T5, T6, T9, T10
 
-- [ ] **T12: Run the end-to-end five-lane proof**
+- [x] **T12: Run the end-to-end five-lane proof**
   - Import the representative quickbooks corpus.
   - Create one strategy-lab project.
   - Run the five lane narrative packs.

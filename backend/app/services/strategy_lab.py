@@ -165,10 +165,24 @@ class StrategyLabService:
         ]
 
     @classmethod
-    def build_lane_context(cls, project_id: str, lane_id: str) -> LaneRunContext:
+    def build_lane_context(
+        cls,
+        project_id: str,
+        lane_id: str,
+        run_id: Optional[str] = None,
+    ) -> LaneRunContext:
         template = cls.get_lane_template(project_id, lane_id)
         template_path = ProjectManager.get_strategy_lab_artifact_path(project_id, "lane_templates.json")
-        lane_context_path = cls._lane_run_root(project_id, lane_id)
+        if run_id:
+            lane_context_path = os.path.join(
+                cls._run_dir(project_id, lane_id, run_id),
+                "lane_context.json",
+            )
+        else:
+            lane_context_path = os.path.join(
+                cls._lane_run_root(project_id, lane_id),
+                "lane_context.json",
+            )
         return LaneRunContext(
             lane_id=template.lane_id,
             workflow_mode=WorkflowMode.STRATEGY_LAB,
@@ -183,6 +197,88 @@ class StrategyLabService:
         )
 
     @classmethod
+    def load_lane_context(cls, lane_context_path: str) -> LaneRunContext:
+        return LaneRunContext.from_dict(cls._read_json(lane_context_path))
+
+    @classmethod
+    def prepare_lane_run(cls, project_id: str, lane_id: str) -> tuple[LaneRunStatus, LaneRunContext]:
+        run_status = cls.get_lane_status(project_id, lane_id)
+        if not run_status or run_status.status in {"completed", "failed"}:
+            run_status = cls._create_run_status(project_id, lane_id, stage="narrative_setup")
+        else:
+            run_status.status = "running"
+            run_status.stage = "narrative_setup"
+            run_status.updated_at = datetime.now().isoformat()
+
+        lane_context = cls.build_lane_context(project_id, lane_id, run_status.run_id)
+        cls._atomic_write_json(lane_context.lane_context_path, lane_context.to_dict())
+        run_status.artifact_paths["lane_context"] = lane_context.lane_context_path
+        cls._save_run_status(run_status)
+        return run_status, lane_context
+
+    @classmethod
+    def attach_simulation(
+        cls,
+        project_id: str,
+        lane_id: str,
+        run_id: str,
+        simulation_id: str,
+    ) -> LaneRunStatus:
+        run_status = cls._load_run_status(project_id, lane_id, run_id)
+        run_status.status = "running"
+        run_status.stage = "simulation_created"
+        run_status.updated_at = datetime.now().isoformat()
+        run_status.artifact_paths["simulation_id"] = simulation_id
+
+        narrative_summary_path = os.path.join(
+            cls._run_dir(project_id, lane_id, run_id),
+            "narrative_summary.json",
+        )
+        if not os.path.exists(narrative_summary_path):
+            cls._atomic_write_json(
+                narrative_summary_path,
+                {
+                    "lane_id": lane_id,
+                    "run_id": run_id,
+                    "simulation_id": simulation_id,
+                    "public_discourse_only": True,
+                    "status": "simulation_created",
+                    "summary_markdown": "Narrative run created. Public-discourse simulation is pending completion.",
+                    "created_at": datetime.now().isoformat(),
+                },
+            )
+        run_status.artifact_paths["narrative_summary_json"] = narrative_summary_path
+        cls._save_run_status(run_status)
+        return run_status
+
+    @classmethod
+    def mark_narrative_prepared(cls, project_id: str, lane_id: str, run_id: str) -> LaneRunStatus:
+        run_status = cls._load_run_status(project_id, lane_id, run_id)
+        run_status.status = "running"
+        run_status.stage = "narrative_ready"
+        run_status.updated_at = datetime.now().isoformat()
+        cls._save_run_status(run_status)
+        return run_status
+
+    @classmethod
+    def attach_interview_artifacts(
+        cls,
+        project_id: str,
+        lane_id: str,
+        run_id: str,
+        interview_path: str,
+        narrative_summary_path: str,
+    ) -> LaneRunStatus:
+        run_status = cls._load_run_status(project_id, lane_id, run_id)
+        run_status.status = "running"
+        run_status.stage = "narrative_captured"
+        run_status.updated_at = datetime.now().isoformat()
+        run_status.artifact_paths["interviews"] = interview_path
+        run_status.artifact_paths["narrative_summary_json"] = narrative_summary_path
+        cls._save_run_status(run_status)
+        return run_status
+
+    @classmethod
     def get_lane_template(cls, project_id: str, lane_id: str) -> LaneTemplate:
         templates = {template.lane_id: template for template in cls.load_lane_templates(project_id)}
         if lane_id not in templates:
@@ -194,7 +290,7 @@ class StrategyLabService:
         cls.get_lane_template(project_id, lane_id)
         cls._acquire_lane_lock_or_raise(project_id, lane_id)
 
-        run_status = cls._create_run_status(project_id, lane_id)
+        run_status = cls._analysis_run_status(project_id, lane_id)
 
         def worker():
             try:
@@ -222,7 +318,7 @@ class StrategyLabService:
                     logger.info("Lane already running, skipping duplicate batch launch: %s", template.lane_id)
                     continue
 
-                run_status = cls._create_run_status(project_id, template.lane_id)
+                run_status = cls._analysis_run_status(project_id, template.lane_id)
                 try:
                     cls._execute_private_analysis(project_id, graph_id, template.lane_id, run_status)
                 except Exception as exc:  # pragma: no cover - defensive thread logging
@@ -398,19 +494,14 @@ class StrategyLabService:
         run_dir = cls._run_dir(project_id, lane_id, run_status.run_id)
         os.makedirs(run_dir, exist_ok=True)
 
-        interview_artifact = InterviewArtifact(
-            lane_id=lane_id,
-            run_id=run_status.run_id,
-            transcript_markdown="No strategy-lab interview transcript captured yet.",
-            created_at=datetime.now().isoformat(),
-        )
-        interview_path = os.path.join(run_dir, "interviews.json")
-        cls._atomic_write_json(interview_path, interview_artifact.to_dict())
+        interview_artifact = cls._load_interview_artifact_for_run(run_status)
+        narrative_summary = cls._load_narrative_summary_for_run(run_status)
 
         agent = PrivateAnalysisAgent(project_id=project_id, graph_id=graph_id)
         scorecard, citation_index = agent.generate_scorecard(
             lane_template=template,
-            interviews_markdown=interview_artifact.transcript_markdown,
+            interviews_markdown=interview_artifact.transcript_markdown if interview_artifact else None,
+            narrative_summary=narrative_summary,
         )
 
         private_analysis_json_path = os.path.join(run_dir, "private_analysis.json")
@@ -424,21 +515,12 @@ class StrategyLabService:
         run_status.stage = "private_analysis"
         run_status.updated_at = datetime.now().isoformat()
         run_status.artifact_paths = {
+            **run_status.artifact_paths,
             "private_analysis_json": private_analysis_json_path,
             "private_analysis_md": private_analysis_md_path,
-            "interviews": interview_path,
             "status": status_path,
         }
-        cls._atomic_write_json(status_path, run_status.to_dict())
-        cls._atomic_write_json(
-            cls._current_pointer_path(project_id, lane_id),
-            {
-                "lane_id": lane_id,
-                "run_id": run_status.run_id,
-                "status_path": status_path,
-                "updated_at": run_status.updated_at,
-            },
-        )
+        cls._save_run_status(run_status)
 
         logger.info(
             "Strategy Lab lane completed: project=%s lane=%s run=%s citations=%s",
@@ -454,7 +536,12 @@ class StrategyLabService:
             logger.info("Comparative report deferred until all lanes complete")
 
     @classmethod
-    def _create_run_status(cls, project_id: str, lane_id: str) -> LaneRunStatus:
+    def _create_run_status(
+        cls,
+        project_id: str,
+        lane_id: str,
+        stage: str = "private_analysis",
+    ) -> LaneRunStatus:
         run_id = f"run_{uuid.uuid4().hex[:12]}"
         now = datetime.now().isoformat()
         status = LaneRunStatus(
@@ -463,22 +550,46 @@ class StrategyLabService:
             run_id=run_id,
             workflow_mode=WorkflowMode.STRATEGY_LAB,
             status="running",
-            stage="private_analysis",
+            stage=stage,
             created_at=now,
             updated_at=now,
         )
-        status_path = os.path.join(cls._run_dir(project_id, lane_id, run_id), "status.json")
-        cls._atomic_write_json(status_path, status.to_dict())
+        cls._save_run_status(status)
+        return status
+
+    @classmethod
+    def _save_run_status(cls, run_status: LaneRunStatus) -> None:
+        status_path = os.path.join(
+            cls._run_dir(run_status.project_id, run_status.lane_id, run_status.run_id),
+            "status.json",
+        )
+        run_status.artifact_paths.setdefault("status", status_path)
+        cls._atomic_write_json(status_path, run_status.to_dict())
         cls._atomic_write_json(
-            cls._current_pointer_path(project_id, lane_id),
+            cls._current_pointer_path(run_status.project_id, run_status.lane_id),
             {
-                "lane_id": lane_id,
-                "run_id": run_id,
+                "lane_id": run_status.lane_id,
+                "run_id": run_status.run_id,
                 "status_path": status_path,
-                "updated_at": now,
+                "updated_at": run_status.updated_at,
             },
         )
-        return status
+
+    @classmethod
+    def _load_run_status(cls, project_id: str, lane_id: str, run_id: str) -> LaneRunStatus:
+        status_path = os.path.join(cls._run_dir(project_id, lane_id, run_id), "status.json")
+        return cls._lane_status_from_dict(cls._read_json(status_path))
+
+    @classmethod
+    def _analysis_run_status(cls, project_id: str, lane_id: str) -> LaneRunStatus:
+        current = cls.get_lane_status(project_id, lane_id)
+        if not current or current.status in {"completed", "failed"}:
+            return cls._create_run_status(project_id, lane_id, stage="private_analysis")
+        current.status = "running"
+        current.stage = "private_analysis"
+        current.updated_at = datetime.now().isoformat()
+        cls._save_run_status(current)
+        return current
 
     @classmethod
     def _validate_lane_templates(cls, templates: List[LaneTemplate]) -> None:
@@ -585,16 +696,35 @@ class StrategyLabService:
         run_status.error = error_message
         run_status.updated_at = datetime.now().isoformat()
         run_status.artifact_paths.setdefault("status", status_path)
-        cls._atomic_write_json(status_path, run_status.to_dict())
-        cls._atomic_write_json(
-            cls._current_pointer_path(project_id, lane_id),
-            {
-                "lane_id": lane_id,
-                "run_id": run_status.run_id,
-                "status_path": status_path,
-                "updated_at": run_status.updated_at,
-            },
+        cls._save_run_status(run_status)
+
+    @classmethod
+    def _load_interview_artifact_for_run(
+        cls,
+        run_status: LaneRunStatus,
+    ) -> Optional[InterviewArtifact]:
+        interview_path = run_status.artifact_paths.get("interviews")
+        if not interview_path or not os.path.exists(interview_path):
+            return None
+        data = cls._read_json(interview_path)
+        if not data:
+            return None
+        return InterviewArtifact(
+            lane_id=data.get("lane_id", run_status.lane_id),
+            run_id=data.get("run_id", run_status.run_id),
+            transcript_markdown=data.get("transcript_markdown", ""),
+            created_at=data.get("created_at", run_status.created_at),
         )
+
+    @classmethod
+    def _load_narrative_summary_for_run(cls, run_status: LaneRunStatus) -> Optional[str]:
+        narrative_summary_path = run_status.artifact_paths.get("narrative_summary_json")
+        if not narrative_summary_path or not os.path.exists(narrative_summary_path):
+            return None
+        data = cls._read_json(narrative_summary_path)
+        if not data:
+            return None
+        return data.get("summary_markdown")
 
     @staticmethod
     def _citation_from_dict(data: Dict[str, Any]) -> CitationRecord:

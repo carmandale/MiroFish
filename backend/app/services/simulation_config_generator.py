@@ -19,6 +19,7 @@ from datetime import datetime
 from openai import OpenAI
 
 from ..config import Config
+from ..models.strategy_lab import LaneRunContext, WorkflowMode
 from ..utils.logger import get_logger
 from .zep_entity_reader import EntityNode, ZepEntityReader
 
@@ -150,6 +151,10 @@ class SimulationParameters:
     project_id: str
     graph_id: str
     simulation_requirement: str
+    workflow_mode: str = WorkflowMode.DEFAULT.value
+    lane_id: Optional[str] = None
+    lane_context_path: Optional[str] = None
+    prompt_framing: str = ""
     
     # 时间配置
     time_config: TimeSimulationConfig = field(default_factory=TimeSimulationConfig)
@@ -180,6 +185,10 @@ class SimulationParameters:
             "project_id": self.project_id,
             "graph_id": self.graph_id,
             "simulation_requirement": self.simulation_requirement,
+            "workflow_mode": self.workflow_mode,
+            "lane_id": self.lane_id,
+            "lane_context_path": self.lane_context_path,
+            "prompt_framing": self.prompt_framing,
             "time_config": time_dict,
             "agent_configs": [asdict(a) for a in self.agent_configs],
             "event_config": asdict(self.event_config),
@@ -250,6 +259,7 @@ class SimulationConfigGenerator:
         enable_twitter: bool = True,
         enable_reddit: bool = True,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
+        lane_context: Optional[LaneRunContext] = None,
     ) -> SimulationParameters:
         """
         智能生成完整的模拟配置（分步生成）
@@ -286,7 +296,8 @@ class SimulationConfigGenerator:
         context = self._build_context(
             simulation_requirement=simulation_requirement,
             document_text=document_text,
-            entities=entities
+            entities=entities,
+            lane_context=lane_context,
         )
         
         reasoning_parts = []
@@ -363,6 +374,14 @@ class SimulationConfigGenerator:
             project_id=project_id,
             graph_id=graph_id,
             simulation_requirement=simulation_requirement,
+            workflow_mode=(
+                lane_context.workflow_mode.value
+                if lane_context
+                else WorkflowMode.DEFAULT.value
+            ),
+            lane_id=lane_context.lane_id if lane_context else None,
+            lane_context_path=lane_context.lane_context_path if lane_context else None,
+            prompt_framing=self._build_prompt_framing(lane_context),
             time_config=time_config,
             agent_configs=all_agent_configs,
             event_config=event_config,
@@ -381,7 +400,8 @@ class SimulationConfigGenerator:
         self,
         simulation_requirement: str,
         document_text: str,
-        entities: List[EntityNode]
+        entities: List[EntityNode],
+        lane_context: Optional[LaneRunContext] = None,
     ) -> str:
         """构建LLM上下文，截断到最大长度"""
         
@@ -393,6 +413,22 @@ class SimulationConfigGenerator:
             f"## 模拟需求\n{simulation_requirement}",
             f"\n## 实体信息 ({len(entities)}个)\n{entity_summary}",
         ]
+
+        if lane_context:
+            context_parts.append(
+                "\n## Strategy Lab Narrative Frame\n"
+                f"- workflow_mode: {lane_context.workflow_mode.value}\n"
+                f"- lane_id: {lane_context.lane_id}\n"
+                f"- display_name: {lane_context.display_name}\n"
+                "- public_discourse_only: true\n"
+                f"- narrative_brief: {lane_context.narrative_brief}\n"
+                f"- public_actor_classes: {', '.join(lane_context.public_actor_classes)}\n"
+                f"- public_event_classes: {', '.join(lane_context.public_event_classes)}\n"
+                f"- interview_personas: {', '.join(lane_context.interview_personas)}\n"
+                f"- procurement_gates_for_private_analysis_only: {', '.join(lane_context.procurement_gates)}\n"
+                "- constraint: model public market signaling, partner chatter, and narrative pressure only; "
+                "do not simulate procurement committees or private buying decisions as in-world actors."
+            )
         
         current_length = sum(len(p) for p in context_parts)
         remaining_length = self.MAX_CONTEXT_LENGTH - current_length - 500  # 留500字符余量
@@ -404,6 +440,14 @@ class SimulationConfigGenerator:
             context_parts.append(f"\n## 原始文档内容\n{doc_text}")
         
         return "\n".join(context_parts)
+
+    def _build_prompt_framing(self, lane_context: Optional[LaneRunContext]) -> str:
+        if not lane_context:
+            return "default_social_discourse"
+        return (
+            f"strategy_lab:{lane_context.lane_id}:public_discourse_only:"
+            "no_procurement_committee_roleplay"
+        )
     
     def _summarize_entities(self, entities: List[EntityNode]) -> str:
         """生成实体摘要"""
@@ -984,4 +1028,3 @@ class SimulationConfigGenerator:
                 "influence_weight": 1.0
             }
     
-

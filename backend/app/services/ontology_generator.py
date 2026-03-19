@@ -4,8 +4,9 @@
 """
 
 import json
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 from ..utils.llm_client import LLMClient
+from ..models.strategy_lab import LaneRunContext
 
 
 # 本体生成的系统提示词
@@ -168,7 +169,7 @@ class OntologyGenerator:
         self,
         document_texts: List[str],
         simulation_requirement: str,
-        additional_context: Optional[str] = None
+        additional_context: Optional[Union[str, Dict[str, Any], LaneRunContext]] = None
     ) -> Dict[str, Any]:
         """
         生成本体定义
@@ -212,7 +213,7 @@ class OntologyGenerator:
         self,
         document_texts: List[str],
         simulation_requirement: str,
-        additional_context: Optional[str]
+        additional_context: Optional[Union[str, Dict[str, Any], LaneRunContext]]
     ) -> str:
         """构建用户消息"""
         
@@ -234,11 +235,12 @@ class OntologyGenerator:
 {combined_text}
 """
         
-        if additional_context:
+        formatted_context = self._format_additional_context(additional_context)
+        if formatted_context:
             message += f"""
 ## 额外说明
 
-{additional_context}
+{formatted_context}
 """
         
         message += """
@@ -253,6 +255,27 @@ class OntologyGenerator:
 """
         
         return message
+
+    def _format_additional_context(
+        self,
+        additional_context: Optional[Union[str, Dict[str, Any], LaneRunContext]],
+    ) -> Optional[str]:
+        if not additional_context:
+            return None
+        if isinstance(additional_context, LaneRunContext):
+            return (
+                "This ontology supports a Strategy Lab workflow.\n"
+                f"- lane_id: {additional_context.lane_id}\n"
+                f"- display_name: {additional_context.display_name}\n"
+                f"- narrative_brief: {additional_context.narrative_brief}\n"
+                f"- public_actor_classes: {', '.join(additional_context.public_actor_classes)}\n"
+                f"- public_event_classes: {', '.join(additional_context.public_event_classes)}\n"
+                "Treat this as public-discourse simulation only; do not model private procurement decisions "
+                "or internal buying committees as simulated actors."
+            )
+        if isinstance(additional_context, dict):
+            return json.dumps(additional_context, ensure_ascii=False, indent=2)
+        return additional_context
     
     def _validate_and_process(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """验证和后处理结果"""
@@ -450,4 +473,3 @@ class OntologyGenerator:
         code_lines.append('}')
         
         return '\n'.join(code_lines)
-

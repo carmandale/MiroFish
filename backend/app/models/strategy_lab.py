@@ -234,6 +234,22 @@ class LaneRunContext:
     def to_dict(self) -> Dict[str, Any]:
         return _serialize(self)
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "LaneRunContext":
+        return cls(
+            lane_id=data["lane_id"],
+            workflow_mode=WorkflowMode(data.get("workflow_mode", WorkflowMode.DEFAULT.value)),
+            template_path=data.get("template_path", ""),
+            lane_context_path=data.get("lane_context_path", ""),
+            assumptions=data.get("assumptions", []),
+            display_name=data.get("display_name", ""),
+            narrative_brief=data.get("narrative_brief", ""),
+            public_actor_classes=data.get("public_actor_classes", []),
+            public_event_classes=data.get("public_event_classes", []),
+            interview_personas=data.get("interview_personas", []),
+            procurement_gates=data.get("procurement_gates", []),
+        )
+
 
 @dataclass
 class LaneMetricResult:

@@ -13,8 +13,11 @@ from ..services.zep_entity_reader import ZepEntityReader
 from ..services.oasis_profile_generator import OasisProfileGenerator
 from ..services.simulation_manager import SimulationManager, SimulationStatus
 from ..services.simulation_runner import SimulationRunner, RunnerStatus
+from ..services.strategy_lab import StrategyLabService
+from ..services.strategy_lab_interviews import StrategyLabInterviewService
 from ..utils.logger import get_logger
 from ..models.project import ProjectManager
+from ..models.strategy_lab import WorkflowMode
 
 logger = get_logger('mirofish.api.simulation')
 
@@ -213,6 +216,20 @@ def create_simulation():
                 "success": False,
                 "error": "项目尚未构建图谱，请先调用 /api/graph/build"
             }), 400
+
+        workflow_mode = project.workflow_mode
+        lane_id = data.get('lane_id')
+        lane_context_path = None
+        run_status = None
+
+        if workflow_mode == WorkflowMode.STRATEGY_LAB:
+            if not lane_id:
+                return jsonify({
+                    "success": False,
+                    "error": "strategy_lab 工作流创建模拟时必须提供 lane_id"
+                }), 400
+            run_status, lane_context = StrategyLabService.prepare_lane_run(project_id, lane_id)
+            lane_context_path = lane_context.lane_context_path
         
         manager = SimulationManager()
         state = manager.create_simulation(
@@ -220,7 +237,17 @@ def create_simulation():
             graph_id=graph_id,
             enable_twitter=data.get('enable_twitter', True),
             enable_reddit=data.get('enable_reddit', True),
+            workflow_mode=workflow_mode,
+            lane_id=lane_id,
+            lane_context_path=lane_context_path,
         )
+        if workflow_mode == WorkflowMode.STRATEGY_LAB and lane_id and run_status:
+            StrategyLabService.attach_simulation(
+                project_id=project_id,
+                lane_id=lane_id,
+                run_id=run_status.run_id,
+                simulation_id=state.simulation_id,
+            )
         
         return jsonify({
             "success": True,
@@ -462,7 +489,15 @@ def prepare_simulation():
         
         # 获取文档文本
         document_text = ProjectManager.get_extracted_text(state.project_id) or ""
-        
+        lane_context = None
+        if state.workflow_mode == WorkflowMode.STRATEGY_LAB:
+            if not state.lane_id or not state.lane_context_path:
+                return jsonify({
+                    "success": False,
+                    "error": "strategy_lab simulation 缺少 lane metadata"
+                }), 400
+            lane_context = StrategyLabService.load_lane_context(state.lane_context_path)
+
         entity_types_list = data.get('entity_types')
         use_llm_for_profiles = data.get('use_llm_for_profiles', True)
         parallel_profile_count = data.get('parallel_profile_count', 5)
@@ -582,9 +617,17 @@ def prepare_simulation():
                     defined_entity_types=entity_types_list,
                     use_llm_for_profiles=use_llm_for_profiles,
                     progress_callback=progress_callback,
-                    parallel_profile_count=parallel_profile_count
+                    parallel_profile_count=parallel_profile_count,
+                    lane_context=lane_context,
                 )
-                
+
+                if lane_context:
+                    StrategyLabService.mark_narrative_prepared(
+                        project_id=state.project_id,
+                        lane_id=lane_context.lane_id,
+                        run_id=os.path.basename(os.path.dirname(lane_context.lane_context_path)),
+                    )
+
                 # 任务完成
                 task_manager.complete_task(
                     task_id,
@@ -2678,6 +2721,32 @@ def close_simulation_env():
                 "success": False,
                 "error": "请提供 simulation_id"
             }), 400
+
+        manager = SimulationManager()
+        state = manager.get_simulation(simulation_id)
+        if not state:
+            return jsonify({
+                "success": False,
+                "error": f"模拟不存在: {simulation_id}"
+            }), 404
+
+        interview_artifact = None
+        if state.workflow_mode == WorkflowMode.STRATEGY_LAB:
+            if not SimulationRunner.check_env_alive(simulation_id):
+                return jsonify({
+                    "success": False,
+                    "error": f"模拟环境未运行或已关闭，无法捕获 strategy-lab 访谈: {simulation_id}"
+                }), 400
+            interview_artifact, interview_path, narrative_summary_path = (
+                StrategyLabInterviewService.capture_for_simulation(state)
+            )
+            StrategyLabService.attach_interview_artifacts(
+                project_id=state.project_id,
+                lane_id=state.lane_id,
+                run_id=os.path.basename(os.path.dirname(state.lane_context_path)),
+                interview_path=interview_path,
+                narrative_summary_path=narrative_summary_path,
+            )
         
         result = SimulationRunner.close_simulation_env(
             simulation_id=simulation_id,
@@ -2685,15 +2754,15 @@ def close_simulation_env():
         )
         
         # 更新模拟状态
-        manager = SimulationManager()
-        state = manager.get_simulation(simulation_id)
-        if state:
-            state.status = SimulationStatus.COMPLETED
-            manager._save_simulation_state(state)
+        state.status = SimulationStatus.COMPLETED
+        manager._save_simulation_state(state)
         
         return jsonify({
             "success": result.get("success", False),
-            "data": result
+            "data": {
+                **result,
+                "interview_captured": bool(interview_artifact),
+            }
         })
         
     except ValueError as e:

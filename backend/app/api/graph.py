@@ -42,6 +42,27 @@ def _parse_workflow_mode(raw_value: str | None) -> WorkflowMode:
         raise ValueError(f"不支持的 workflow_mode: {raw_value}") from exc
 
 
+def _build_ontology_context(
+    workflow_mode: WorkflowMode,
+    additional_context: str,
+) -> str | dict | None:
+    if workflow_mode != WorkflowMode.STRATEGY_LAB:
+        return additional_context if additional_context else None
+
+    strategy_context = {
+        "workflow_mode": workflow_mode.value,
+        "public_discourse_only": True,
+        "narrative_focus": (
+            "Design ontology for public market signaling, partner chatter, "
+            "competitor pressure, and narrative events. Do not model private "
+            "procurement committees or internal buying decisions as in-world actors."
+        ),
+    }
+    if additional_context:
+        strategy_context["operator_notes"] = additional_context
+    return strategy_context
+
+
 # ============== 项目管理接口 ==============
 
 @graph_bp.route('/project/<project_id>', methods=['GET'])
@@ -255,7 +276,7 @@ def generate_ontology():
         ontology = generator.generate(
             document_texts=document_texts,
             simulation_requirement=simulation_requirement,
-            additional_context=additional_context if additional_context else None
+            additional_context=_build_ontology_context(workflow_mode, additional_context),
         )
         
         # 保存本体到项目

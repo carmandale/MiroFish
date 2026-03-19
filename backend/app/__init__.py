@@ -39,8 +39,10 @@ def create_app(config_class=Config):
         logger.info("MiroFish Backend 启动中...")
         logger.info("=" * 50)
     
-    # 启用CORS
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    # 启用 CORS：开发环境默认开放，其他环境要求显式 allowlist
+    allowed_origins = config_class.CORS_ALLOWED_ORIGINS
+    cors_origins = "*" if debug_mode and not allowed_origins else allowed_origins
+    CORS(app, resources={r"/api/*": {"origins": cors_origins}})
     
     # 注册模拟进程清理函数（确保服务器关闭时终止所有模拟进程）
     from .services.simulation_runner import SimulationRunner

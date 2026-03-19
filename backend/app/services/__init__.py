@@ -39,6 +39,7 @@ from .simulation_ipc import (
 from .strategy_lab_provenance import StrategyLabProvenanceService
 from .private_analysis_agent import PrivateAnalysisAgent
 from .strategy_lab import StrategyLabService
+from .strategy_lab_interviews import StrategyLabInterviewService
 
 __all__ = [
     'OntologyGenerator', 
@@ -75,4 +76,5 @@ __all__ = [
     'StrategyLabProvenanceService',
     'PrivateAnalysisAgent',
     'StrategyLabService',
+    'StrategyLabInterviewService',
 ]

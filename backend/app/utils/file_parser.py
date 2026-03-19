@@ -185,7 +185,8 @@ class FileParser:
             if not content:
                 continue
 
-            style_name = (paragraph.style.name or "").lower()
+            style = getattr(paragraph, "style", None)
+            style_name = (getattr(style, "name", "") or "").lower()
             if "heading" in style_name:
                 locator_type = LocatorType.HEADING
                 locator = f"heading:{index}"
