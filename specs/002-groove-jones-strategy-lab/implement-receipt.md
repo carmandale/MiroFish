@@ -1,6 +1,6 @@
 ---
 baseline_sha: 985f89f49acbb44ee14d9d680682c741a44eeebe
-end_sha: 36110a4d6cc0194f6dd11987b2089e571e6959d7
+end_sha: e6e5d76529ef3063e18e6c69d2496a33095e6136
 test_command: "cd backend && uv run pytest"
 test_result: pass
 test_count: 21
@@ -50,8 +50,8 @@ frontend/src/views/Home.vue
 frontend/src/views/MainView.vue
 frontend/src/views/Process.vue
 frontend/src/views/StrategyLabView.vue
-specs/002-groove-jones-strategy-lab/.gate-implement-existing
 specs/002-groove-jones-strategy-lab/codex-review.md
+specs/002-groove-jones-strategy-lab/implement-receipt.md
 specs/002-groove-jones-strategy-lab/log.md
 specs/002-groove-jones-strategy-lab/plan.md
 specs/002-groove-jones-strategy-lab/planning-transcript.md
