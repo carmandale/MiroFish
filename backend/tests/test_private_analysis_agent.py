@@ -166,3 +166,81 @@ def test_private_analysis_agent_rejects_all_research_labels_when_narrative_exist
             lane_template,
             narrative_summary="Narrative summary from captured interviews.",
         )
+
+
+def test_private_analysis_agent_filters_mixed_citations_to_declared_source(
+    monkeypatch,
+    tmp_path,
+):
+    project, lane_template = _create_project_with_manifest(monkeypatch, tmp_path)
+
+    payload = {
+        "summary": "Mixed-source metrics should normalize to the declared source label.",
+        "assumptions": [],
+        "caveats": [],
+        "metrics": {
+            "time_to_cash": {
+                "score": "Medium",
+                "judgment": "time_to_cash judged from cited research.",
+                "source_label": "research_citation",
+                "citation_ids": ["defense-government-entry:research:01"],
+                "monte_carlo_attachment": None,
+            },
+            "durability_12_24m": {
+                "score": "Medium",
+                "judgment": "durability judged from the lane template and internal gates.",
+                "source_label": "private_analysis",
+                "citation_ids": ["defense-government-entry:private:template"],
+                "monte_carlo_attachment": None,
+            },
+            "capability_fit": {
+                "score": "Medium",
+                "judgment": "capability fit judged from the lane template and internal gates.",
+                "source_label": "private_analysis",
+                "citation_ids": ["defense-government-entry:private:template"],
+                "monte_carlo_attachment": None,
+            },
+            "required_investment": {
+                "score": "Medium",
+                "judgment": "required investment judged from cited research.",
+                "source_label": "research_citation",
+                "citation_ids": ["defense-government-entry:research:02"],
+                "monte_carlo_attachment": None,
+            },
+            "failure_modes": {
+                "score": "High",
+                "judgment": "failure modes surfaced in the narrative capture.",
+                "source_label": "narrative_simulation",
+                "citation_ids": ["defense-government-entry:narrative:summary"],
+                "monte_carlo_attachment": None,
+            },
+            "evidence_strength": {
+                "score": "Medium",
+                "judgment": "evidence strength uses research as the cell source and should drop stray citations.",
+                "source_label": "research_citation",
+                "citation_ids": [
+                    "defense-government-entry:research:01",
+                    "defense-government-entry:private:template",
+                    "defense-government-entry:narrative:summary",
+                ],
+                "monte_carlo_attachment": None,
+            },
+        },
+    }
+
+    agent = PrivateAnalysisAgent(
+        project_id=project.project_id,
+        graph_id="graph-1",
+        llm_client=FakeLLMClient(payload),
+    )
+
+    scorecard, _ = agent.generate_scorecard(
+        lane_template,
+        narrative_summary="Narrative summary from captured interviews.",
+    )
+
+    assert scorecard.metrics["evidence_strength"].source_label.value == "research_citation"
+    assert scorecard.metrics["evidence_strength"].citation_ids == [
+        "defense-government-entry:research:01"
+    ]
+    assert len(scorecard.metrics["evidence_strength"].citations) == 1

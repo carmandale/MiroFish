@@ -20,6 +20,7 @@ from openai import OpenAI
 
 from ..config import Config
 from ..models.strategy_lab import LaneRunContext, WorkflowMode
+from ..utils.llm_client import LLMClient
 from ..utils.logger import get_logger
 from .zep_entity_reader import EntityNode, ZepEntityReader
 
@@ -490,7 +491,10 @@ class SimulationConfigGenerator:
                         {"role": "user", "content": prompt}
                     ],
                     response_format={"type": "json_object"},
-                    temperature=0.7 - (attempt * 0.1)  # 每次重试降低温度
+                    **LLMClient.compatibility_kwargs(
+                        self.model_name,
+                        temperature=0.7 - (attempt * 0.1),  # 每次重试降低温度
+                    )
                     # 不设置max_tokens，让LLM自由发挥
                 )
                 

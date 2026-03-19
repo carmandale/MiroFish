@@ -875,6 +875,9 @@ class StrategyLabService:
         run_status: LaneRunStatus,
         error_message: str,
     ) -> None:
+        current_status = cls.get_lane_status(project_id, lane_id)
+        if current_status and current_status.run_id == run_status.run_id:
+            run_status = current_status
         status_path = os.path.join(cls._run_dir(project_id, lane_id, run_status.run_id), "status.json")
         run_status.status = "failed"
         run_status.error = error_message

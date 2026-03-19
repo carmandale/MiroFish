@@ -31,6 +31,56 @@ class LLMClient:
             api_key=self.api_key,
             base_url=self.base_url
         )
+
+    @staticmethod
+    def model_uses_max_completion_tokens(model_name: Optional[str]) -> bool:
+        """GPT-5 系列在 Chat Completions 中使用 `max_completion_tokens`。"""
+        return (model_name or "").lower().startswith("gpt-5")
+
+    @classmethod
+    def compatibility_kwargs(
+        cls,
+        model_name: Optional[str],
+        *,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        生成兼容不同模型家族的请求参数。
+
+        GPT-5 系列：
+        - `max_completion_tokens` 替代 `max_tokens`
+        - 仅支持默认 temperature，因此非 1 的值直接省略，让服务端使用默认值
+        """
+        kwargs: Dict[str, Any] = {}
+        if max_tokens is not None:
+            if cls.model_uses_max_completion_tokens(model_name):
+                kwargs["max_completion_tokens"] = max_tokens
+            else:
+                kwargs["max_tokens"] = max_tokens
+
+        if temperature is not None:
+            if cls.model_uses_max_completion_tokens(model_name):
+                if temperature == 1:
+                    kwargs["temperature"] = temperature
+            else:
+                kwargs["temperature"] = temperature
+
+        return kwargs
+
+    def _token_limit_kwargs(self, max_tokens: int) -> Dict[str, int]:
+        """
+        兼容不同 OpenAI 兼容模型的 token 限制参数名。
+
+        GPT-5 系列在 Chat Completions 中要求 `max_completion_tokens`，
+        其余现有调用继续使用 `max_tokens`。
+        """
+        compatibility = self.compatibility_kwargs(self.model, max_tokens=max_tokens)
+        return {
+            key: value
+            for key, value in compatibility.items()
+            if key in {"max_tokens", "max_completion_tokens"}
+        }
     
     def chat(
         self,
@@ -54,8 +104,12 @@ class LLMClient:
         kwargs = {
             "model": self.model,
             "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
+            **self._token_limit_kwargs(max_tokens),
+            **{
+                key: value
+                for key, value in self.compatibility_kwargs(self.model, temperature=temperature).items()
+                if key == "temperature"
+            },
         }
         
         if response_format:
@@ -100,4 +154,3 @@ class LLMClient:
             return json.loads(cleaned_response)
         except json.JSONDecodeError:
             raise ValueError(f"LLM返回的JSON格式无效: {cleaned_response}")
-

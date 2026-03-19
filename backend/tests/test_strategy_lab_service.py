@@ -468,3 +468,42 @@ def test_strategy_lab_service_rejects_duplicate_overlapping_lane_runs(monkeypatc
     finally:
         if lock.locked():
             lock.release()
+
+
+def test_mark_run_failed_preserves_latest_stage(monkeypatch, tmp_path):
+    monkeypatch.setattr(ProjectManager, "PROJECTS_DIR", str(tmp_path / "projects"))
+    project = ProjectManager.create_project(
+        name="Strategy Lab",
+        workflow_mode=WorkflowMode.STRATEGY_LAB,
+    )
+
+    templates = StrategyLabService.seed_lane_templates(project.project_id)
+    template = next(item for item in templates if item.lane_id == "defense-government-entry")
+
+    original_run_status, lane_context = StrategyLabService.prepare_lane_run(project.project_id, template.lane_id)
+    StrategyLabService.attach_simulation(
+        project.project_id,
+        template.lane_id,
+        original_run_status.run_id,
+        "sim-1",
+    )
+    StrategyLabService.attach_interview_artifacts(
+        project.project_id,
+        template.lane_id,
+        original_run_status.run_id,
+        os.path.join(os.path.dirname(lane_context.lane_context_path), "interviews.json"),
+        os.path.join(os.path.dirname(lane_context.lane_context_path), "narrative_summary.json"),
+    )
+
+    StrategyLabService._mark_run_failed(
+        project.project_id,
+        template.lane_id,
+        original_run_status,
+        "boom",
+    )
+
+    saved_status = StrategyLabService.get_lane_status(project.project_id, template.lane_id)
+    assert saved_status is not None
+    assert saved_status.status == "failed"
+    assert saved_status.stage == "narrative_captured"
+    assert saved_status.error == "boom"

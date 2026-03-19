@@ -367,21 +367,16 @@ source_rules:
             resolved_citations = []
             inferred_sources = set()
             if source_label != AnalysisSourceLabel.MONTE_CARLO_ATTACHMENT:
-                if not citation_ids:
-                    raise ValueError(f"{dimension} 缺少 citation_ids")
-                for citation_id in citation_ids:
-                    if citation_id not in citation_index:
-                        raise ValueError(f"{dimension} 使用了未知 citation_id: {citation_id}")
-                    citation = citation_index[citation_id]
-                    resolved_citations.append(citation)
-                    inferred_sources.add(citation.source_label)
-                if len(inferred_sources) != 1:
-                    raise ValueError(f"{dimension} 的 citation_ids 必须来自同一种 source_label")
-                inferred_source = next(iter(inferred_sources))
-                if source_label != inferred_source:
-                    raise ValueError(
-                        f"{dimension} 的 source_label={source_label.value} 与 citation_ids 的来源不一致"
-                    )
+                (
+                    source_label,
+                    citation_ids,
+                    resolved_citations,
+                ) = self._normalize_metric_citations(
+                    dimension=dimension,
+                    source_label=source_label,
+                    citation_ids=citation_ids,
+                    citation_index=citation_index,
+                )
             elif not (metric_payload.get("monte_carlo_attachment") or monte_carlo_attachment):
                 raise ValueError(f"{dimension} 使用 monte_carlo_attachment 但缺少附件内容")
 
@@ -412,6 +407,57 @@ source_rules:
             assumptions=assumptions if isinstance(assumptions, list) else [],
             caveats=caveats if isinstance(caveats, list) else [],
         )
+
+    def _normalize_metric_citations(
+        self,
+        *,
+        dimension: str,
+        source_label: AnalysisSourceLabel,
+        citation_ids: List[str],
+        citation_index: Dict[str, CitationRecord],
+    ) -> Tuple[AnalysisSourceLabel, List[str], List[CitationRecord]]:
+        if not citation_ids:
+            raise ValueError(f"{dimension} 缺少 citation_ids")
+
+        resolved_pairs: List[Tuple[str, CitationRecord]] = []
+        grouped_pairs: Dict[AnalysisSourceLabel, List[Tuple[str, CitationRecord]]] = {}
+        for citation_id in citation_ids:
+            if citation_id not in citation_index:
+                raise ValueError(f"{dimension} 使用了未知 citation_id: {citation_id}")
+            citation = citation_index[citation_id]
+            resolved_pairs.append((citation_id, citation))
+            grouped_pairs.setdefault(citation.source_label, []).append((citation_id, citation))
+
+        if len(grouped_pairs) == 1:
+            inferred_source = next(iter(grouped_pairs))
+            if source_label != inferred_source:
+                logger.warning(
+                    "scorecard metric source_label corrected: dimension=%s declared=%s inferred=%s",
+                    dimension,
+                    source_label.value,
+                    inferred_source.value,
+                )
+                source_label = inferred_source
+            normalized_pairs = grouped_pairs[inferred_source]
+        else:
+            normalized_pairs = grouped_pairs.get(source_label, [])
+            if not normalized_pairs:
+                inferred_labels = ", ".join(sorted(label.value for label in grouped_pairs))
+                raise ValueError(
+                    f"{dimension} 的 source_label={source_label.value} 与 citation_ids 的来源不一致: {inferred_labels}"
+                )
+            dropped_count = len(resolved_pairs) - len(normalized_pairs)
+            if dropped_count > 0:
+                logger.warning(
+                    "scorecard metric dropped mixed-source citations: dimension=%s source_label=%s dropped=%s",
+                    dimension,
+                    source_label.value,
+                    dropped_count,
+                )
+
+        normalized_ids = [citation_id for citation_id, _ in normalized_pairs]
+        normalized_citations = [citation for _, citation in normalized_pairs]
+        return source_label, normalized_ids, normalized_citations
 
     @staticmethod
     def _validate_source_coverage(

@@ -20,6 +20,7 @@ from zep_cloud.client import Zep
 
 from ..config import Config
 from ..utils.logger import get_logger
+from ..utils.llm_client import LLMClient
 from .zep_entity_reader import EntityNode, ZepEntityReader
 
 logger = get_logger('mirofish.oasis_profile')
@@ -533,7 +534,10 @@ class OasisProfileGenerator:
                         {"role": "user", "content": prompt}
                     ],
                     response_format={"type": "json_object"},
-                    temperature=0.7 - (attempt * 0.1)  # 每次重试降低温度
+                    **LLMClient.compatibility_kwargs(
+                        self.model_name,
+                        temperature=0.7 - (attempt * 0.1),  # 每次重试降低温度
+                    )
                     # 不设置max_tokens，让LLM自由发挥
                 )
                 
@@ -1197,4 +1201,3 @@ class OasisProfileGenerator:
         """[已废弃] 请使用 save_profiles() 方法"""
         logger.warning("save_profiles_to_json已废弃，请使用save_profiles方法")
         self.save_profiles(profiles, file_path, platform)
-
