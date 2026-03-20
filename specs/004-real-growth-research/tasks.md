@@ -105,7 +105,7 @@ bead: bd-7km
 
 ## MiroFish Validation Layer
 
-- [ ] **T10: Assemble the bounded MiroFish ingest subset**
+- [x] **T10: Assemble the bounded MiroFish ingest subset**
   - Select a curated subset from `artifacts/transform/`, `artifacts/research/`, and `artifacts/leadership/`.
   - Copy it into `artifacts/mirofish-corpus/`.
   - Keep the first validation pass near `12-15` files and `<=250` chunks, but shrink or split bundles if the estimate exceeds the ceiling.
@@ -113,7 +113,7 @@ bead: bd-7km
   - **Verify:** selected files and estimated corpus size are recorded before upload.
   - **Depends on:** T5, T6, T8, T9
 
-- [ ] **T11: Run the ingest smoke validation through the existing MiroFish path**
+- [x] **T11: Run the ingest smoke validation through the existing MiroFish path**
   - Upload the curated subset through the normal intake flow.
   - Confirm `corpus_manifest.json` and `chunk_manifest.json` are generated cleanly.
   - Reconstruct provenance-survivability samples from the normalized extracted text basis that MiroFish chunks (`ExtractedDocument.text` / `FileParser.extract_document(...).text`) and apply `chunk_manifest.json` offsets there.
@@ -124,7 +124,7 @@ bead: bd-7km
 
 ## Final QA
 
-- [ ] **T12: Finalize freshness, redaction, and packaging**
+- [x] **T12: Finalize freshness, redaction, and packaging**
   - Review the workspace for unnecessary PII or raw sensitive detail.
   - Confirm freshness notes are present in the source inventory and leadership docs.
   - Ensure the final package separates:
