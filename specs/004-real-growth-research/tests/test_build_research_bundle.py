@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
-import json
-import os
 import sys
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -35,31 +32,19 @@ class BuildResearchBundleTests(unittest.TestCase):
         self.assertLessEqual(len(line), MODULE.INLINE_PROVENANCE_MAX_CHARS)
 
     def test_validate_snapshots_or_fail_detects_drift(self) -> None:
-        temp_root = Path(__file__).resolve().parent / ".tmp"
-        temp_root.mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=temp_root) as tmp:
-            tmp_dir = Path(tmp)
-            source = tmp_dir / "sample.json"
-            source.write_text('{"a": 1}\n', encoding="utf-8")
-            snapshot_path = tmp_dir / "source-snapshots.json"
-            payload = [
-                {
-                    "source_id": "X-01",
-                    "source_path": str(source),
-                    "raw_sha256": MODULE.sha256_file(source),
-                }
-            ]
-            snapshot_path.write_text(json.dumps(payload), encoding="utf-8")
-            original = MODULE.SOURCE_SNAPSHOTS_PATH
-            MODULE.SOURCE_SNAPSHOTS_PATH = snapshot_path
-            try:
-                MODULE.validate_snapshots_or_fail()
-                source.write_text('{"a": 2}\n', encoding="utf-8")
-                with self.assertRaises(SystemExit) as ctx:
-                    MODULE.validate_snapshots_or_fail()
-                self.assertIn("checksum drift", str(ctx.exception))
-            finally:
-                MODULE.SOURCE_SNAPSHOTS_PATH = original
+        source = Path(__file__)
+        payload = [
+            {
+                "source_id": "X-01",
+                "source_path": str(source),
+                "raw_sha256": MODULE.sha256_file(source),
+            }
+        ]
+        MODULE.validate_snapshot_payload_or_fail(payload)
+        payload[0]["raw_sha256"] = "deadbeef"
+        with self.assertRaises(SystemExit) as ctx:
+            MODULE.validate_snapshot_payload_or_fail(payload)
+        self.assertIn("checksum drift", str(ctx.exception))
 
     def test_transform_open_deal_notes_omits_raw_people_fields_and_names(self) -> None:
         data = [
@@ -113,63 +98,47 @@ class BuildResearchBundleTests(unittest.TestCase):
         self.assertNotIn("214-555-1212", text)
 
     def test_validate_markdown_requires_full_contract(self) -> None:
-        temp_root = Path(__file__).resolve().parent / ".tmp"
-        temp_root.mkdir(exist_ok=True)
-        sample = temp_root / "sample.md"
-        sample.write_text(
-            "\n".join(
-                [
-                    "---",
-                    'title: "Sample"',
-                    'source_id: "X-01"',
-                    'source_path: "/tmp/source.json"',
-                    'source_repo: "/tmp"',
-                    'source_snapshot_ref: "abc123"',
-                    'snapshot_date: "2026-03-20"',
-                    'record_count: "1"',
-                    'record_count_method: "list_length"',
-                    'transform_method: "sample_v1"',
-                    'selection_rule: "tier-a"',
-                    'raw_sha256: "deadbeef"',
-                    'evidence_tier: "internal-primary"',
-                    'sensitivity_class: "restricted"',
-                    'generated_at: "2026-03-20T17:00:00+00:00"',
-                    "---",
-                    "",
-                    "## Provenance",
-                    "",
-                    "`source_id=X-01` `source_path=source.json` `records=1` `tier=internal-primary` `snapshot=abc123` `method=sample_v1`",
-                ]
-            ),
-            encoding="utf-8",
+        sample_text = "\n".join(
+            [
+                "---",
+                'title: "Sample"',
+                'source_id: "X-01"',
+                'source_path: "/tmp/source.json"',
+                'source_repo: "/tmp"',
+                'source_snapshot_ref: "abc123"',
+                'snapshot_date: "2026-03-20"',
+                'record_count: "1"',
+                'record_count_method: "list_length"',
+                'transform_method: "sample_v1"',
+                'selection_rule: "tier-a"',
+                'raw_sha256: "deadbeef"',
+                'evidence_tier: "internal-primary"',
+                'sensitivity_class: "restricted"',
+                'generated_at: "2026-03-20T17:00:00+00:00"',
+                "---",
+                "",
+                "## Provenance",
+                "",
+                "`source_id=X-01` `source_path=source.json` `records=1` `tier=internal-primary` `snapshot=abc123` `method=sample_v1`",
+            ]
         )
-        MODULE.validate_markdown(sample)
-        broken = sample.with_name("broken.md")
-        broken.write_text(
-            sample.read_text(encoding="utf-8").replace('raw_sha256: "deadbeef"\n', ""),
-            encoding="utf-8",
-        )
+        MODULE.validate_markdown_text(sample_text, "sample.md")
+        broken = sample_text.replace('raw_sha256: "deadbeef"\n', "")
         with self.assertRaises(SystemExit) as ctx:
-            MODULE.validate_markdown(broken)
+            MODULE.validate_markdown_text(broken, "broken.md")
         self.assertIn("missing frontmatter fields", str(ctx.exception))
 
     def test_all_transforms_render_and_validate_with_live_snapshots(self) -> None:
         snapshots = {item["source_id"]: item for item in MODULE.validate_snapshots_or_fail()}
-        originals = {}
-        try:
-            for source_id in MODULE.TRANSFORMS:
-                path = MODULE.TRANSFORM_DIR / f"{source_id.lower().replace('-', '_')}.md"
-                originals[path] = path.read_text(encoding="utf-8") if path.exists() else None
-                path = MODULE.transform_one(source_id, snapshots[source_id])
-                MODULE.validate_markdown(path)
-            self.assertEqual(len(originals), len(MODULE.TRANSFORMS))
-        finally:
-            for path, original in originals.items():
-                if original is None:
-                    if path.exists():
-                        os.unlink(path)
-                else:
-                    path.write_text(original, encoding="utf-8")
+        validated = 0
+        for source_id, transform in MODULE.TRANSFORMS.items():
+            snapshot = snapshots[source_id]
+            data = MODULE.load_json(Path(snapshot["source_path"]))
+            title = f"{source_id} — {MODULE.SOURCE_INDEX[source_id].summary}"
+            text = MODULE.render_markdown(title, snapshot, transform(data))
+            MODULE.validate_markdown_text(text, f"{source_id}.md")
+            validated += 1
+        self.assertEqual(validated, len(MODULE.TRANSFORMS))
 
 
 if __name__ == "__main__":

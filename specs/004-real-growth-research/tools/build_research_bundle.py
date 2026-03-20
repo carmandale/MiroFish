@@ -349,8 +349,7 @@ def load_snapshots() -> list[dict[str, Any]]:
     return json.loads(SOURCE_SNAPSHOTS_PATH.read_text(encoding="utf-8"))
 
 
-def validate_snapshots_or_fail() -> list[dict[str, Any]]:
-    snapshots = load_snapshots()
+def validate_snapshot_payload_or_fail(snapshots: list[dict[str, Any]]) -> list[dict[str, Any]]:
     errors: list[str] = []
     for item in snapshots:
         path = Path(item["source_path"])
@@ -366,6 +365,10 @@ def validate_snapshots_or_fail() -> list[dict[str, Any]]:
     if errors:
         raise SystemExit("Snapshot validation failed:\n- " + "\n- ".join(errors))
     return snapshots
+
+
+def validate_snapshots_or_fail() -> list[dict[str, Any]]:
+    return validate_snapshot_payload_or_fail(load_snapshots())
 
 
 def compact_provenance_line(snapshot: dict[str, Any]) -> str:
@@ -761,23 +764,26 @@ def transform_one(source_id: str, snapshot: dict[str, Any]) -> Path:
     return output
 
 
-def validate_markdown(path: Path) -> None:
-    text = path.read_text(encoding="utf-8")
+def validate_markdown_text(text: str, label: str) -> None:
     frontmatter = parse_frontmatter(text)
     missing_fields = [field for field in REQUIRED_FRONTMATTER_KEYS if field not in frontmatter]
     if missing_fields:
-        raise SystemExit(f"{path.name}: missing frontmatter fields {missing_fields}")
+        raise SystemExit(f"{label}: missing frontmatter fields {missing_fields}")
     missing = [token for token in REQUIRED_INLINE_TOKENS if token not in text]
     if missing:
-        raise SystemExit(f"{path.name}: missing inline provenance tokens {missing}")
+        raise SystemExit(f"{label}: missing inline provenance tokens {missing}")
     if EMAIL_RE.search(text):
-        raise SystemExit(f"{path.name}: email address leaked into committed output")
+        raise SystemExit(f"{label}: email address leaked into committed output")
     if PHONE_RE.search(text):
-        raise SystemExit(f"{path.name}: phone number leaked into committed output")
+        raise SystemExit(f"{label}: phone number leaked into committed output")
     lowered = text.lower()
     for denied in ["email:", "phone:", "person_name:", "contacts:", "user:"]:
         if denied in lowered:
-            raise SystemExit(f"{path.name}: denylist token leaked: {denied}")
+            raise SystemExit(f"{label}: denylist token leaked: {denied}")
+
+
+def validate_markdown(path: Path) -> None:
+    validate_markdown_text(path.read_text(encoding="utf-8"), path.name)
 
 
 def cmd_freeze(_: argparse.Namespace) -> int:
