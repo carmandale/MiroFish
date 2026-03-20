@@ -33,6 +33,57 @@ TAG_RE = re.compile(r"<[^>]+>")
 WHITESPACE_RE = re.compile(r"\s+")
 CURRENCY_RE = re.compile(r"\$[\d,]+(?:\.\d+)?")
 INLINE_PROVENANCE_MAX_CHARS = 320
+SAFE_NOTE_KEYWORDS = {
+    "budget",
+    "close",
+    "closing",
+    "contract",
+    "demo",
+    "discount",
+    "expansion",
+    "followup",
+    "forecast",
+    "launch",
+    "license",
+    "maintenance",
+    "meeting",
+    "milestone",
+    "pricing",
+    "procurement",
+    "proposal",
+    "renewal",
+    "review",
+    "risk",
+    "scope",
+    "security",
+    "signature",
+    "support",
+    "timeline",
+}
+REQUIRED_FRONTMATTER_KEYS = [
+    "title",
+    "source_id",
+    "source_path",
+    "source_repo",
+    "source_snapshot_ref",
+    "snapshot_date",
+    "record_count",
+    "record_count_method",
+    "transform_method",
+    "selection_rule",
+    "raw_sha256",
+    "evidence_tier",
+    "sensitivity_class",
+    "generated_at",
+]
+REQUIRED_INLINE_TOKENS = [
+    "source_id=",
+    "source_path=",
+    "records=",
+    "tier=",
+    "snapshot=",
+    "method=",
+]
 
 
 @dataclass(frozen=True)
@@ -235,6 +286,27 @@ def redact_text(text: str) -> str:
     value = EMAIL_RE.sub("[redacted-email]", value)
     value = PHONE_RE.sub("[redacted-phone]", value)
     return value
+
+
+def extract_safe_note_keywords(text: str) -> list[str]:
+    normalized = text.lower().replace("-", "")
+    found = {keyword for keyword in SAFE_NOTE_KEYWORDS if keyword in normalized}
+    return sorted(found)[:6]
+
+
+def parse_frontmatter(text: str) -> dict[str, str]:
+    if not text.startswith("---\n"):
+        raise SystemExit("missing yaml frontmatter header")
+    parts = text.split("\n---\n", 1)
+    if len(parts) != 2:
+        raise SystemExit("missing yaml frontmatter terminator")
+    frontmatter = {}
+    for line in parts[0].splitlines()[1:]:
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        frontmatter[key.strip()] = value.strip()
+    return frontmatter
 
 
 def build_source_snapshots() -> list[dict[str, Any]]:
@@ -540,7 +612,7 @@ def transform_open_deal_notes(data: list[dict[str, Any]]) -> list[tuple[str, str
     for item in data:
         clean = redact_text(item.get("content", ""))
         values = ", ".join(CURRENCY_RE.findall(clean)[:3]) or "none"
-        keywords = sorted(set(re.findall(r"[A-Za-z]{5,}", clean.lower())))[:6]
+        keywords = extract_safe_note_keywords(clean)
         rows.append(
             {
                 "deal_id": item.get("deal_id"),
@@ -691,8 +763,11 @@ def transform_one(source_id: str, snapshot: dict[str, Any]) -> Path:
 
 def validate_markdown(path: Path) -> None:
     text = path.read_text(encoding="utf-8")
-    required_tokens = ["source_id=", "source_path=", "records=", "tier="]
-    missing = [token for token in required_tokens if token not in text]
+    frontmatter = parse_frontmatter(text)
+    missing_fields = [field for field in REQUIRED_FRONTMATTER_KEYS if field not in frontmatter]
+    if missing_fields:
+        raise SystemExit(f"{path.name}: missing frontmatter fields {missing_fields}")
+    missing = [token for token in REQUIRED_INLINE_TOKENS if token not in text]
     if missing:
         raise SystemExit(f"{path.name}: missing inline provenance tokens {missing}")
     if EMAIL_RE.search(text):

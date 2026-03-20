@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -34,7 +35,9 @@ class BuildResearchBundleTests(unittest.TestCase):
         self.assertLessEqual(len(line), MODULE.INLINE_PROVENANCE_MAX_CHARS)
 
     def test_validate_snapshots_or_fail_detects_drift(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
+        temp_root = Path(__file__).resolve().parent / ".tmp"
+        temp_root.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=temp_root) as tmp:
             tmp_dir = Path(tmp)
             source = tmp_dir / "sample.json"
             source.write_text('{"a": 1}\n', encoding="utf-8")
@@ -58,13 +61,13 @@ class BuildResearchBundleTests(unittest.TestCase):
             finally:
                 MODULE.SOURCE_SNAPSHOTS_PATH = original
 
-    def test_transform_open_deal_notes_omits_raw_people_fields(self) -> None:
+    def test_transform_open_deal_notes_omits_raw_people_fields_and_names(self) -> None:
         data = [
             {
                 "deal_id": 1,
-                "content": "<p>Call Katie at katie@example.com or +1 (214) 555-1234 about $25,000 annual license.</p>",
+                "content": "<p>Call Katherine at katie@example.com or +1 (214) 555-1234 about $25,000 annual license renewal.</p>",
                 "org_name": "Init Labs",
-                "person_name": "Katie Monk",
+                "person_name": "Katherine Monk",
                 "user": "William O'Donnell",
                 "update_time": "2026-03-02 21:28:34",
             }
@@ -73,7 +76,10 @@ class BuildResearchBundleTests(unittest.TestCase):
         text = "\n".join(sections.values())
         self.assertIn("Init Labs", text)
         self.assertIn("$25,000", text)
-        self.assertNotIn("Katie Monk", text)
+        self.assertIn("license", text)
+        self.assertIn("renewal", text)
+        self.assertNotIn("Katherine", text)
+        self.assertNotIn("Katherine Monk", text)
         self.assertNotIn("William O'Donnell", text)
         self.assertNotIn("katie@example.com", text)
         self.assertNotIn("214", text)
@@ -105,6 +111,65 @@ class BuildResearchBundleTests(unittest.TestCase):
         self.assertNotIn("Dan McGowan", text)
         self.assertNotIn("nick@example.com", text)
         self.assertNotIn("214-555-1212", text)
+
+    def test_validate_markdown_requires_full_contract(self) -> None:
+        temp_root = Path(__file__).resolve().parent / ".tmp"
+        temp_root.mkdir(exist_ok=True)
+        sample = temp_root / "sample.md"
+        sample.write_text(
+            "\n".join(
+                [
+                    "---",
+                    'title: "Sample"',
+                    'source_id: "X-01"',
+                    'source_path: "/tmp/source.json"',
+                    'source_repo: "/tmp"',
+                    'source_snapshot_ref: "abc123"',
+                    'snapshot_date: "2026-03-20"',
+                    'record_count: "1"',
+                    'record_count_method: "list_length"',
+                    'transform_method: "sample_v1"',
+                    'selection_rule: "tier-a"',
+                    'raw_sha256: "deadbeef"',
+                    'evidence_tier: "internal-primary"',
+                    'sensitivity_class: "restricted"',
+                    'generated_at: "2026-03-20T17:00:00+00:00"',
+                    "---",
+                    "",
+                    "## Provenance",
+                    "",
+                    "`source_id=X-01` `source_path=source.json` `records=1` `tier=internal-primary` `snapshot=abc123` `method=sample_v1`",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        MODULE.validate_markdown(sample)
+        broken = sample.with_name("broken.md")
+        broken.write_text(
+            sample.read_text(encoding="utf-8").replace('raw_sha256: "deadbeef"\n', ""),
+            encoding="utf-8",
+        )
+        with self.assertRaises(SystemExit) as ctx:
+            MODULE.validate_markdown(broken)
+        self.assertIn("missing frontmatter fields", str(ctx.exception))
+
+    def test_all_transforms_render_and_validate_with_live_snapshots(self) -> None:
+        snapshots = {item["source_id"]: item for item in MODULE.validate_snapshots_or_fail()}
+        originals = {}
+        try:
+            for source_id in MODULE.TRANSFORMS:
+                path = MODULE.TRANSFORM_DIR / f"{source_id.lower().replace('-', '_')}.md"
+                originals[path] = path.read_text(encoding="utf-8") if path.exists() else None
+                path = MODULE.transform_one(source_id, snapshots[source_id])
+                MODULE.validate_markdown(path)
+            self.assertEqual(len(originals), len(MODULE.TRANSFORMS))
+        finally:
+            for path, original in originals.items():
+                if original is None:
+                    if path.exists():
+                        os.unlink(path)
+                else:
+                    path.write_text(original, encoding="utf-8")
 
 
 if __name__ == "__main__":
