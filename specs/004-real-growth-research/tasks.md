@@ -14,7 +14,7 @@ bead: bd-7km
 
 ## Prerequisites
 
-- [ ] **T0: Freeze the source set and scaffold the spec-local workspace**
+- [x] **T0: Freeze the source set and scaffold the spec-local workspace**
   - Confirm the exact input files from `quickbooks/data-package/` and `quickbooks/specs/009-market-intelligence/`.
   - Freeze `artifacts/transform/source-snapshots.json` with snapshot dates, record counts, freshness caveats, and immutable source refs (repo commit SHA or frozen source path) plus mandatory SHA-256 checksums.
   - Create the working directories under `specs/004-real-growth-research/`:
@@ -25,7 +25,7 @@ bead: bd-7km
     - `artifacts/mirofish-corpus/`
   - **Verify:** source inventory seed list and `source-snapshots.json` exist, and no source-repo files were modified.
 
-- [ ] **T1: Define the provenance and evidence-tier contracts**
+- [x] **T1: Define the provenance and evidence-tier contracts**
   - Create `source-inventory.md`.
   - Create `evidence-tier-rubric.md`.
   - Define the transformed-doc schema with frontmatter plus an inline `## Provenance` block, including `source_snapshot_ref`, `record_count_method`, and `sensitivity_class`.
@@ -36,7 +36,7 @@ bead: bd-7km
 
 ## Internal Evidence Layer
 
-- [ ] **T2: Build mechanical transforms for the highest-urgency financial and collection signals**
+- [x] **T2: Build mechanical transforms for the highest-urgency financial and collection signals**
   - Transform:
     - `08-qbo-financial-summary.json`
     - `07-qbo-ar-aging.json`
@@ -46,7 +46,7 @@ bead: bd-7km
   - **Verify:** transformed docs preserve counts and remain readable without raw JSON access.
   - **Depends on:** T0, T1
 
-- [ ] **T3: Build mechanical transforms for near-term revenue and delivery signals**
+- [x] **T3: Build mechanical transforms for near-term revenue and delivery signals**
   - Transform summary views for:
     - `01-pipedrive-open-pipeline.json`
     - `05-forecast-active-projects.json`
@@ -57,7 +57,7 @@ bead: bd-7km
   - **Verify:** each output includes provenance, the selection rule used to summarize large inputs, and passes the redaction allowlist/denylist checks.
   - **Depends on:** T2
 
-- [ ] **T4: Decide and implement the secondary CRM history transforms**
+- [x] **T4: Decide and implement the secondary CRM history transforms**
   - Evaluate whether to transform:
     - `02-pipedrive-won-deals-2022-2026.json`
     - `03-client-relationship-profiles.json`
