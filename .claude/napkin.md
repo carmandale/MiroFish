@@ -6,12 +6,14 @@
 | 2026-03-19 | code-verify follow-up | I described the March 18 Strategy Lab proof artifacts as if they demonstrated a fresh live simulation run. | Treat `backend/uploads/projects/proj_85bec7582332/strategy_lab/` as a proof harness using real corpus extraction plus synthetic interview/private-analysis artifacts (`proof-sim-0N` IDs), not a live post-fix OASIS+LLM rerun. |
 | 2026-03-19 | live rerun attempt | I assumed wiring `OPENAI_API_KEY` into `LLM_API_KEY` plus a real `ZEP_API_KEY` would be sufficient to complete a fresh Strategy Lab rerun. | Shell wiring is now correct, but the first live ontology call fails with OpenAI `429 insufficient_quota`; the next real rerun needs working model credits or an alternate OpenAI-compatible provider, not more shell changes. |
 | 2026-03-19 | live rerun attempt | I recommended `gpt-5-mini` before proving this repo’s current OpenAI call patterns were fully compatible with it. | For now, use `gpt-4.1` as the practical live-run default; GPT-5 support needs further hardening beyond token/temperature compatibility because ontology generation still returned empty JSON on the live path. |
+| 2026-03-20 | user correction on mesh stalls | I treated non-speaking `crew-challenger` spawns as a collaborator health/path issue. | Treat it as the current spawn-command liveness-heuristic bug tracked by `pi-messenger-35k` / `specs/009-deterministic-spawn-liveness/`; do not debug `crew-challenger`, and if retrying mesh in MiroFish, use `.pi/messenger/crew/config.json` with `{\"collaboration\":{\"stallThresholdMs\":600000}}`. |
 
 ## User Preferences
 - (accumulate as you learn them)
 - Fully ground the repo before starting implementation work; honor the ground-cache gate instead of skimming.
 - If shaping materially changes the solution, update the spec to match the selected shape before planning or implementation.
 - Spec-local workflow artifacts are critical assets here; commit them instead of leaving them untracked just because they look like metadata.
+- Do not debug `crew-challenger` stalls in MiroFish right now; the tracked bug is spawn-command liveness detection, and the approved local workaround is a 10-minute `stallThresholdMs` override under `.pi/messenger/crew/config.json`.
 
 ## Patterns That Work
 - (approaches that succeeded)
