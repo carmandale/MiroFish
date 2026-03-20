@@ -84,20 +84,20 @@ bead: bd-7km
 
 ## Decision Layer
 
-- [ ] **T7: Build the contradiction register and claim/evidence ledger**
+- [x] **T7: Build the contradiction register and claim/evidence ledger**
   - Create `contradiction-register.md`.
   - Map key strategic claims to supporting, contradicting, and missing evidence.
   - Flag freshness limits and confidence level.
   - **Verify:** each contradiction entry references specific internal or external evidence docs by path/id.
   - **Depends on:** T2, T3, T4, T6
 
-- [ ] **T8: Draft the 30-90 day triage brief first**
+- [x] **T8: Draft the 30-90 day triage brief first**
   - Create `artifacts/leadership/30-90-day-triage.md`.
   - Focus on cash, AR, pipeline, capacity, and immediate moves.
   - **Verify:** every recommendation links back to evidence docs and does not rely solely on AI-mediated context.
   - **Depends on:** T2, T3, T7
 
-- [ ] **T9: Draft the 6-24 month strategy brief second**
+- [x] **T9: Draft the 6-24 month strategy brief second**
   - Create `artifacts/leadership/6-24-month-strategy.md`.
   - Focus on durable lanes, strategic constraints, and evidence-weighted opportunities.
   - **Verify:** the brief clearly distinguishes stronger evidence from directional inference.
