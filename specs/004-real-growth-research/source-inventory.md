@@ -24,16 +24,29 @@
 
 ## Existing Research Corpus (Spec 009)
 
-| Prefix | Source Set | Location | Tier Default | Verification Status | Notes |
-|--------|------------|----------|--------------|---------------------|-------|
-| R-009 | Research folder | `~/dev/quickbooks/specs/009-market-intelligence/research/` | mixed | Needs per-file classification | 30 research files; many are AI-mediated or mixed-source |
-| R-APP | Source appendix | `~/dev/quickbooks/specs/009-market-intelligence/source-appendix.md` | verification helper | COMMITTED | Reuse table pattern for current work |
+| ID | Source | Location | Used For | Tier | Verification | Notes |
+|----|--------|----------|----------|------|--------------|-------|
+| R-009 | Spec-009 research corpus | `~/dev/quickbooks/specs/009-market-intelligence/research/` | Lead generation only | mixed | REVIEWED — see `artifacts/research/009-corpus-tiering.md` | 30 files total; 26 markdown files classified |
+| R-009-Q1 | Active spenders research | `~/dev/quickbooks/specs/009-market-intelligence/research/q1_active_xr_spenders.md` | Buyer-target seeding | `external-attributable-secondary` | COMMITTED — carry forward with attribution | Good carry-forward file for named spender examples |
+| R-009-Q2 | Competitor landscape research | `~/dev/quickbooks/specs/009-market-intelligence/research/q2_competing_agencies.md` | Competitive baseline | `external-attributable-secondary` | COMMITTED — carry forward with attribution | Use as market map, not final proof |
+| R-009-Q4 | Scaling examples research | `~/dev/quickbooks/specs/009-market-intelligence/research/q4_scaling_examples.md` | Long-horizon strategic comparisons | `external-attributable-secondary` | COMMITTED — carry forward with attribution | Useful for platform-vs-services cases |
+| R-009-Q5 | Cancellation research | `~/dev/quickbooks/specs/009-market-intelligence/research/q5_cancellation_research.md` | Contradiction and risk analysis | `mixed-needs-review` | COMMITTED — use with spot-checking | Strongest because it explicitly states evidence limits |
+| R-009-BRIEF | Market intelligence brief 01 | `~/dev/quickbooks/specs/009-market-intelligence/research/Groove Jones Market Intelligence Brief 01.md` | Lead bundle for cross-checking | `mixed-needs-review` | COMMITTED — spot-check before reuse | Valuable synthesis, not standalone proof |
+| R-APP | Source appendix | `~/dev/quickbooks/specs/009-market-intelligence/source-appendix.md` | verification helper | `external-attributable-secondary` | COMMITTED | Reused table pattern for current work |
 
 ## External Research Intake
 
 | ID | Source | URL / Location | Used For | Tier | Verification | Notes |
 |----|--------|----------------|----------|------|--------------|-------|
-| EXT-001 | Pending | _to be filled during T6_ | Buyer timing / market proof | `external-primary` or `external-attributable-secondary` | NEEDS VERIFICATION | Add only named, attributable sources |
+| EXT-001 | PwC VR soft-skills training study | `artifacts/research/ext-001-enterprise-training-signals.md` | Training ROI and speed proof | `external-primary` | VERIFIED (named source checked) | Official PwC study page |
+| EXT-002 | Accenture Nth Floor enterprise VR use | `artifacts/research/ext-001-enterprise-training-signals.md` | Large-enterprise onboarding and learning signal | `external-primary` | VERIFIED (named source checked) | Official Accenture page |
+| EXT-003 | Accenture investment in Praxis Labs | `artifacts/research/ext-001-enterprise-training-signals.md` | Enterprise services investment signal for immersive learning | `external-primary` | VERIFIED (named source checked) | Strategic demand signal, not buyer deployment |
+| EXT-004 | GE HealthCare + MediView OmnifyXR installation | `artifacts/research/ext-002-healthcare-medtech-signals.md` | Healthcare/medtech deployment proof | `external-primary` | VERIFIED (named source checked) | Live clinical deployment |
+| EXT-005 | Stryker + IRCAD NA training center agreement | `artifacts/research/ext-002-healthcare-medtech-signals.md` | Training-center and medtech education investment signal | `external-primary` | VERIFIED (named source checked) | Multi-year agreement |
+| EXT-006 | Stryker Blueprint MR first surgeries | `artifacts/research/ext-002-healthcare-medtech-signals.md` | Mixed-reality procedural-use proof | `external-primary` | VERIFIED (named source checked) | Clinical workflow evidence |
+| EXT-007 | Army PD SAI VAST classroom deployment | `artifacts/research/ext-003-defense-training-signals.md` | Defense immersive-training deployment proof | `external-primary` | VERIFIED (named source checked) | Operational Army deployment |
+| EXT-008 | Army SBIR JETT XR training award | `artifacts/research/ext-003-defense-training-signals.md` | Small-business-accessible defense entry proof | `external-primary` | VERIFIED (named source checked) | Official SBIR award record |
+| EXT-009 | Army Synthetic Training Environment operational use | `artifacts/research/ext-003-defense-training-signals.md` | Broader modernization context | `external-primary` | VERIFIED (named source checked) | Official Army article |
 
 ## Sensitivity Rules
 

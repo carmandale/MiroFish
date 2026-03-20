@@ -68,14 +68,14 @@ bead: bd-7km
 
 ## Research Quality Layer
 
-- [ ] **T5: Tier and curate the existing 009 research corpus**
+- [x] **T5: Tier and curate the existing 009 research corpus**
   - Inventory the `009-market-intelligence/research` files.
   - Classify each file into the evidence-tier rubric.
   - Carry forward only the subset useful for v1, labeled honestly.
   - **Verify:** AI-mediated files are never mislabeled as primary or attributable secondary evidence.
   - **Depends on:** T1
 
-- [ ] **T6: Add bounded, named external research beyond the current 009 bundle**
+- [x] **T6: Add bounded, named external research beyond the current 009 bundle**
   - Acquire a bounded set of primary or attributable secondary sources for the highest-priority triage and strategy questions.
   - Create external research docs under `artifacts/research/`.
   - Add verification rows to `source-inventory.md`.
